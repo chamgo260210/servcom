@@ -37,9 +37,11 @@ class Settings:
 
         # Reverse proxy / tunnel aware settings
         self.API_ROOT_PATH: str = os.getenv("API_ROOT_PATH", "")
+        default_trusted_hosts = "localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev"
         self.TRUSTED_HOSTS: list[str] = [
-            host.strip() for host in os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1").split(",") if host.strip()
+            host.strip() for host in os.getenv("TRUSTED_HOSTS", default_trusted_hosts).split(",") if host.strip()
         ]
+        self.TRUST_ALL_HOSTS = os.getenv("TRUST_ALL_HOSTS", "false").lower() == "true"
 
         cors_origins = os.getenv("BACKEND_CORS_ORIGINS", "")
         if not cors_origins:

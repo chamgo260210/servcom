@@ -281,7 +281,8 @@ DATABASE_URL=postgresql+psycopg2://worktime:<DB비밀번호>@127.0.0.1:5432/work
 JWT_SECRET=<랜덤_긴_문자열>
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 API_ROOT_PATH=
-TRUSTED_HOSTS=localhost,127.0.0.1
+TRUSTED_HOSTS=localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev
+TRUST_ALL_HOSTS=false
 BACKEND_CORS_ORIGINS=
 BACKEND_CORS_ALLOW_CREDENTIALS=false
 
@@ -680,6 +681,35 @@ printf 'ACCOUNT=%s\nNAMESPACE=%s\n' "$CF_ACCOUNT_ID" "$CF_KV_NAMESPACE_ID"
 # 토큰으로 읽기/쓰기 되는지 확인
 curl -i -X GET   "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/active_url"   -H "Authorization: Bearer ${CF_API_TOKEN}"
 ```
+
+
+### E) UI는 뜨는데 `/api/health`가 400(Bad Request)인 경우
+증상 예시:
+- 브라우저 콘솔에 `GET https://<...>.trycloudflare.com/api/health 400 (Bad Request)` 반복
+- 로그인 화면은 뜨지만 상태 표시가 계속 빨간색
+
+원인:
+- FastAPI `TrustedHostMiddleware`가 현재 터널 호스트(`*.trycloudflare.com` 등)를 허용하지 않아 Host 헤더를 차단.
+
+확인:
+```bash
+journalctl -u work-time-api -n 120 --no-pager
+# Invalid host header 류 메시지 확인
+```
+
+해결:
+```bash
+sudo sed -i 's#^TRUSTED_HOSTS=.*#TRUSTED_HOSTS=localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev#' /srv/app/.env
+sudo sed -i 's#^TRUST_ALL_HOSTS=.*#TRUST_ALL_HOSTS=false#' /srv/app/.env
+
+# 긴급 우회(임시):
+# sudo sed -i 's#^TRUST_ALL_HOSTS=.*#TRUST_ALL_HOSTS=true#' /srv/app/.env
+
+sudo systemctl restart work-time-api
+curl -i https://<현재-터널-호스트>/api/health
+```
+
+`200 OK`가 나오면 UI의 상태 체크/로그인이 정상화됩니다.
 
 ### D) Quick Tunnel 429가 계속돼 서비스가 안 올라오는 경우(근본 해결)
 Quick Tunnel(계정 없는 임시 터널)은 Cloudflare 측 정책으로 429가 길게 지속될 수 있습니다.

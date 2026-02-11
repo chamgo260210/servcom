@@ -17,7 +17,7 @@ if settings.APP_ENV.lower() in {"local", "development", "dev"}:
 
 app = FastAPI(title=settings.PROJECT_NAME, root_path=settings.API_ROOT_PATH)
 
-if settings.TRUSTED_HOSTS:
+if not settings.TRUST_ALL_HOSTS and settings.TRUSTED_HOSTS:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.TRUSTED_HOSTS)
 
 if settings.CORS_ALLOW_ORIGINS:
