@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_VERSION="2026-02-11-rgless-v2"
+
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
 # Optional:
@@ -15,6 +17,8 @@ CLOUDFLARED_LOG="$LOG_DIR/cloudflared.log"
 TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com}
 KV_KEY=${KV_KEY:-active_url}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
+
+echo "[INFO] cloudflared-kv-updater start version=${SCRIPT_VERSION} user=$(id -un)" >&2
 
 missing_vars=()
 [[ -n "${CF_ACCOUNT_ID:-}" ]] || missing_vars+=("CF_ACCOUNT_ID")
@@ -38,11 +42,7 @@ trap cleanup EXIT
 
 extract_url() {
   local pattern="https://[a-zA-Z0-9.-]+\.${TUNNEL_HOST_FILTER}"
-  if command -v rg >/dev/null 2>&1; then
-    rg -o "$pattern" "$CLOUDFLARED_LOG" -N | tail -n1 || true
-  else
-    grep -Eo "$pattern" "$CLOUDFLARED_LOG" | tail -n1 || true
-  fi
+  grep -Eo "$pattern" "$CLOUDFLARED_LOG" | tail -n1 || true
 }
 
 for _ in $(seq 1 60); do

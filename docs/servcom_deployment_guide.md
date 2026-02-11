@@ -581,13 +581,22 @@ cd /srv/app
 git pull
 sudo cp /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
 sudo chmod +x /srv/app/scripts/cloudflared-kv-updater.sh
+
+# 배포된 스크립트 버전 확인 (반드시 rgless-v2 보여야 함)
+grep -n 'SCRIPT_VERSION' /srv/app/scripts/cloudflared-kv-updater.sh
+
+# systemd가 실제 어떤 파일을 실행하는지 확인
+sudo systemctl cat work-time-cloudflared.service
+
 sudo systemctl daemon-reload
+sudo systemctl reset-failed work-time-cloudflared.service
 sudo systemctl restart work-time-cloudflared.service
 
 journalctl -u work-time-cloudflared -n 120 --no-pager
 curl -fsS https://<worker-url>/_edge/status
 ```
 
+로그에 `version=2026-02-11-rgless-v2`가 보여야 최신 스크립트가 실제로 실행된 것입니다.
 `/_edge/status`에서 `has_active_url=true`가 나오면 Worker 리다이렉트가 정상 동작합니다.
 
 ---
