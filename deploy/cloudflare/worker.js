@@ -58,13 +58,13 @@ export default {
       return htmlError('KV active_url is invalid.', 500);
     }
 
-    const allowedHosts = (env.ALLOWED_TUNNEL_HOSTS || 'trycloudflare.com')
+    const allowedHosts = (env.ALLOWED_TUNNEL_HOSTS || 'trycloudflare.com,cfargotunnel.com')
       .split(',')
       .map((v) => v.trim())
       .filter(Boolean);
 
     if (!allowedHosts.some((host) => target.hostname.endsWith(host))) {
-      return htmlError('active_url host is not allowed by whitelist.', 403);
+      return htmlError(`active_url host is not allowed by whitelist. host=${target.hostname}`, 403);
     }
 
     return Response.redirect(`${target.origin}${url.pathname}${url.search}`, method === 'GET' ? 302 : 307);

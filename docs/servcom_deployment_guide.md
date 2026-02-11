@@ -295,6 +295,7 @@ CF_API_TOKEN=<KV쓰기권한_API_Token>
 CF_KV_NAMESPACE_ID=<KV_Namespace_ID>
 KV_KEY=active_url
 TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
+TUNNEL_START_MAX_RETRIES=5
 LOG_DIR=/var/log/work-time
 # true면 KV 업데이트 없이 터널만 실행(디버깅용)
 SKIP_KV_UPDATE=false
@@ -456,7 +457,7 @@ curl -i http://127.0.0.1:8080/health
 2. **Create** > **Worker**
 3. 에디터 코드 전체를 `deploy/cloudflare/worker.js` 내용으로 교체
 4. Worker Settings > Variables에서 추가:
-   - `ALLOWED_TUNNEL_HOSTS=trycloudflare.com`
+   - `ALLOWED_TUNNEL_HOSTS=trycloudflare.com,cfargotunnel.com`
    - `BLOCK_DIRECT_API=true` (원하면)
 5. Worker Settings > Bindings > KV Namespace 바인딩 추가:
    - Variable name: `TUNNEL_KV`
@@ -582,7 +583,7 @@ git pull
 sudo cp /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
 sudo chmod +x /srv/app/scripts/cloudflared-kv-updater.sh
 
-# 배포된 스크립트 버전 확인 (반드시 url-detect-v3 보여야 함)
+# 배포된 스크립트 버전 확인 (반드시 stream-retry-v4 보여야 함)
 grep -n 'SCRIPT_VERSION' /srv/app/scripts/cloudflared-kv-updater.sh
 
 # systemd가 실제 어떤 파일을 실행하는지 확인
@@ -597,8 +598,41 @@ sudo tail -n 120 /var/log/work-time/cloudflared.log
 curl -fsS https://<worker-url>/_edge/status
 ```
 
-로그에 `version=2026-02-11-url-detect-v3`가 보여야 최신 스크립트가 실제로 실행된 것입니다.
+로그에 `version=2026-02-11-stream-retry-v4`가 보여야 최신 스크립트가 실제로 실행된 것입니다.
 `/_edge/status`에서 `has_active_url=true`가 나오면 Worker 리다이렉트가 정상 동작합니다.
+
+## 14-7. 현재 발생한 오류(`429 Too Many Requests` / `host is not allowed`) 해결
+
+### A) `Error unmarshaling QuickTunnel response ... status_code="429 Too Many Requests"`
+Quick Tunnel 발급 요청이 Cloudflare 측에서 일시적으로 제한된 상태입니다.
+
+```bash
+# 서비스 재시작 폭주를 멈추고 잠시 대기
+sudo systemctl stop work-time-cloudflared.service
+sleep 120
+
+# 재시작 후 로그 확인
+sudo systemctl start work-time-cloudflared.service
+journalctl -u work-time-cloudflared -n 150 --no-pager
+```
+
+최신 스크립트는 429 감지 시 백오프 재시도를 수행합니다.
+
+### B) Worker에서 `active_url host is not allowed by whitelist`
+KV에 들어간 URL 호스트와 Worker의 `ALLOWED_TUNNEL_HOSTS`가 맞지 않을 때 발생합니다.
+
+Worker Variables를 아래처럼 설정하세요.
+- `ALLOWED_TUNNEL_HOSTS=trycloudflare.com,cfargotunnel.com`
+
+그리고 updater가 최신(`stream-retry-v4`)인지 확인 후 재시작합니다.
+
+```bash
+grep -n 'SCRIPT_VERSION' /srv/app/scripts/cloudflared-kv-updater.sh
+sudo systemctl restart work-time-cloudflared.service
+curl -fsS https://<worker-url>/_edge/status
+```
+
+`active_url_host`가 `trycloudflare.com` 또는 `cfargotunnel.com` 계열인지 확인하세요.
 
 ---
 

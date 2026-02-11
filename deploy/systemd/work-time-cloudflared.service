@@ -12,7 +12,7 @@ EnvironmentFile=/srv/app/.env
 ExecStart=/srv/app/scripts/cloudflared-kv-updater.sh
 Restart=always
 RestartPreventExitStatus=78
-RestartSec=5
+RestartSec=20
 StandardOutput=journal
 StandardError=journal
 

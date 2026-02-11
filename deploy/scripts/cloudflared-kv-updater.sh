@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-02-11-url-detect-v3"
+SCRIPT_VERSION="2026-02-11-stream-retry-v4"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -9,6 +9,7 @@ SCRIPT_VERSION="2026-02-11-url-detect-v3"
 #   TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
 #   KV_KEY=active_url
 #   SKIP_KV_UPDATE=true            # run tunnel only without KV write
+#   TUNNEL_START_MAX_RETRIES=5
 
 LOG_DIR=${LOG_DIR:-/var/log/work-time}
 mkdir -p "$LOG_DIR"
@@ -17,6 +18,7 @@ CLOUDFLARED_LOG="$LOG_DIR/cloudflared.log"
 TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com,cfargotunnel.com}
 KV_KEY=${KV_KEY:-active_url}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
+TUNNEL_START_MAX_RETRIES=${TUNNEL_START_MAX_RETRIES:-5}
 
 echo "[INFO] cloudflared-kv-updater start version=${SCRIPT_VERSION} user=$(id -un)" >&2
 
@@ -32,56 +34,63 @@ if [[ "${#missing_vars[@]}" -gt 0 && "${SKIP_KV_UPDATE,,}" != "true" ]]; then
   exit 78
 fi
 
-cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
-CF_PID=$!
-
+CF_PID=""
 cleanup() {
-  kill "$CF_PID" >/dev/null 2>&1 || true
+  if [[ -n "${CF_PID}" ]]; then
+    kill "$CF_PID" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
 extract_url() {
-  local suffixes=()
-  IFS=',' read -r -a suffixes <<< "${TUNNEL_HOST_FILTER}"
-
-  local candidates
-  candidates=$(grep -Eo 'https://[A-Za-z0-9.-]+' "$CLOUDFLARED_LOG" | awk '!seen[$0]++' || true)
-
-  local matched=""
-  while IFS= read -r u; do
-    [[ -n "$u" ]] || continue
-    local host="${u#https://}"
-    for suffix in "${suffixes[@]}"; do
-      suffix="${suffix## }"
-      suffix="${suffix%% }"
-      [[ -n "$suffix" ]] || continue
-      if [[ "$host" == *"$suffix" ]]; then
-        matched="$u"
-      fi
-    done
-  done <<< "$candidates"
-
-  if [[ -n "$matched" ]]; then
-    echo "$matched"
-    return 0
-  fi
-
-  # Fallback: if host filter is wrong but tunnel URL exists, pick last HTTPS candidate.
-  echo "$candidates" | tail -n1 || true
+  local pattern='https://[A-Za-z0-9.-]+\.(trycloudflare\.com|cfargotunnel\.com)'
+  grep -Eo "$pattern" "$CLOUDFLARED_LOG" | tail -n1 || true
 }
 
-for _ in $(seq 1 90); do
-  if ! kill -0 "$CF_PID" >/dev/null 2>&1; then
-    echo "[ERROR] cloudflared process exited before URL discovery" >&2
-    break
-  fi
-  URL=$(extract_url)
-  if [[ -n "${URL}" ]]; then
-    break
-  fi
-  sleep 1
-done
+start_and_discover_url() {
+  local attempt
+  for attempt in $(seq 1 "$TUNNEL_START_MAX_RETRIES"); do
+    : >"$CLOUDFLARED_LOG"
+    cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
+    CF_PID=$!
+    echo "[INFO] cloudflared attempt=${attempt}/${TUNNEL_START_MAX_RETRIES} pid=${CF_PID}" >&2
 
+    for _ in $(seq 1 90); do
+      local url
+      url=$(extract_url)
+      if [[ -n "${url}" ]]; then
+        echo "$url"
+        return 0
+      fi
+
+      if grep -q 'status_code="429 Too Many Requests"' "$CLOUDFLARED_LOG"; then
+        echo "[WARN] Quick Tunnel rate-limited (429). backing off before retry..." >&2
+        kill "$CF_PID" >/dev/null 2>&1 || true
+        wait "$CF_PID" 2>/dev/null || true
+        CF_PID=""
+        sleep $((attempt * 20))
+        break
+      fi
+
+      if ! kill -0 "$CF_PID" >/dev/null 2>&1; then
+        echo "[WARN] cloudflared exited before URL discovery. retrying..." >&2
+        break
+      fi
+
+      sleep 1
+    done
+
+    if [[ -n "${CF_PID}" ]]; then
+      kill "$CF_PID" >/dev/null 2>&1 || true
+      wait "$CF_PID" 2>/dev/null || true
+      CF_PID=""
+    fi
+  done
+
+  return 1
+}
+
+URL=$(start_and_discover_url || true)
 if [[ -z "${URL:-}" ]]; then
   echo "[ERROR] Failed to discover tunnel URL from $CLOUDFLARED_LOG" >&2
   echo "[HINT] Check cloudflared log: tail -n 120 $CLOUDFLARED_LOG" >&2
@@ -90,6 +99,11 @@ if [[ -z "${URL:-}" ]]; then
 fi
 
 echo "[INFO] Active tunnel URL: $URL"
+
+# Restart cloudflared in long-running mode after successful discovery to avoid stale pid/log states
+: >"$CLOUDFLARED_LOG"
+cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
+CF_PID=$!
 
 if [[ "${SKIP_KV_UPDATE,,}" == "true" ]]; then
   echo "[WARN] SKIP_KV_UPDATE=true, KV update skipped"
