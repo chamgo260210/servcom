@@ -1,84 +1,54 @@
 # Dasan Shift Manager
 
-대학 도서관(다산정보관) 근로장학생 근무 관리용 풀스택 샘플입니다. 프론트엔드는 정적 페이지(GitHub Pages), 백엔드는 FastAPI(Render), 데이터베이스는 PostgreSQL(Neon)을 사용합니다. 저장소에는 코드만 포함되고, 데이터베이스 URL·JWT 시크릿은 환경 변수로만 주입하도록 강제해 비밀이 커밋되지 않도록 했습니다.
+대학 도서관(다산정보관) 근로장학생 근무 관리용 풀스택 예제입니다.
+
+- 백엔드: FastAPI (`/backend`)
+- 프론트엔드: 정적 HTML/CSS/JS (`/ui`)
+- DB: PostgreSQL 스키마/마이그레이션 (`/db`)
 
 ## 저장소 구조
-- `/ui`: 정적 프론트엔드 (HTML/CSS/JS). GitHub Pages에 `/ui`를 퍼블리시하면 루트 `index.html`이 로그인 페이지로 리다이렉트합니다.
-- `/backend`: FastAPI 애플리케이션.
-- `/db`: PostgreSQL 스키마와 시드(Neon에서 실행).
+- `backend/`: API 서버, JWT 인증, 역할 기반 권한(MASTER > OPERATOR > MEMBER)
+- `ui/`: 정적 프론트엔드, API 호출은 기본적으로 상대경로 `/api`
+- `db/schema.sql`: 최종 기준 스키마
+- `db/migrations/`: 순차 마이그레이션
+- `deploy/`: Nginx/systemd/cloudflared/Worker 배포 템플릿
+- `docs/servcom_deployment_guide.md`: 시설망(outbound-only) + Tailscale SSH 포함 완전 초기 재현 가이드
 
-## 데이터베이스 설정 (Neon)
-1. 새 PostgreSQL 데이터베이스 인스턴스를 만듭니다.
-2. 스키마를 실행합니다.
-   ```sql
-   \i db/schema.sql
-   ```
-3. 샘플 데이터를 넣습니다(선택 사항).
-   ```sql
-   \i db/seed.sql
-   ```
+## 환경 변수 (필수)
+- `DATABASE_URL`
+- `JWT_SECRET`
 
-### 기존 DB 업데이트
-이전 배포본에는 `request_status` enum의 `CANCELLED` 값과 부분 결근 시간·취소 플래그 컬럼이 없을 수 있습니다. 이미 생성된 데이터베이스에서는 다음 구문으로 enum과 컬럼을 추가해 주세요.
+선택:
+- `ACCESS_TOKEN_EXPIRE_MINUTES` (기본 60)
+- `TRUSTED_HOSTS` (기본 `localhost,127.0.0.1`)
+- `BACKEND_CORS_ORIGINS` (기본 비활성)
 
-```sql
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'request_status') THEN
-        IF NOT EXISTS (
-            SELECT 1
-            FROM pg_type t
-            JOIN pg_enum e ON t.oid = e.enumtypid
-            WHERE t.typname = 'request_status'
-              AND e.enumlabel = 'CANCELLED'
-        ) THEN
-            ALTER TYPE request_status ADD VALUE IF NOT EXISTS 'CANCELLED';
-        END IF;
-    END IF;
-    ALTER TABLE IF EXISTS shift_requests
-        ADD COLUMN IF NOT EXISTS target_start_time TIME,
-        ADD COLUMN IF NOT EXISTS target_end_time TIME,
-        ADD COLUMN IF NOT EXISTS cancelled_after_approval BOOLEAN NOT NULL DEFAULT FALSE,
-        ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
-END$$;
-```
+예시는 `deploy/.env.server.example` 참고.
 
-## 백엔드 환경 변수
-Render나 로컬 실행 시 다음 환경 변수를 설정해야 합니다(미설정 시 애플리케이션이 시작되지 않음).
-- `DATABASE_URL` (예: `postgresql://user:pass@host:5432/dbname`)
-- `JWT_SECRET` (임의의 안전한 문자열)
-- `ACCESS_TOKEN_EXPIRE_MINUTES` (선택, 기본 60)
-- `BACKEND_CORS_ORIGINS` (쉼표 구분, 기본 `*`)
-
-## 로컬에서 백엔드 실행
+## 로컬 실행
 ```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r backend/requirements.txt
-uvicorn backend.main:app --reload
+uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-## Render에 백엔드 배포
-1. GitHub 저장소를 Render Web Service로 연결합니다.
-2. Build 명령: `pip install -r backend/requirements.txt`
-3. Start 명령: `./render_start.sh` (스크립트가 자동으로 저장소 루트로 이동하고 `PYTHONPATH`에 루트를 추가해 `ModuleNotFoundError: No module named 'backend'`를 방지합니다.)
-4. 환경 변수 설정: `DATABASE_URL`, `JWT_SECRET`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `BACKEND_CORS_ORIGINS`.
+## DB 초기화
+```bash
+psql "$DATABASE_URL" -f db/schema.sql
+for f in db/migrations/*.sql; do
+  psql "$DATABASE_URL" -f "$f"
+done
+```
 
-## GitHub Pages로 프론트엔드 배포
-1. `/ui` 디렉터리를 GitHub Pages 대상으로 퍼블리시합니다.
-2. `/ui/js/api.js`의 `API_BASE_URL`을 Render에 배포된 백엔드 URL로 교체합니다.
-3. GitHub Pages 루트가 `/ui`면 `index.html`이 자동으로 `html/index.html`로 리다이렉션합니다.
+## 시설망 서버컴 배포
+아래 문서를 순서대로 진행하세요(우분투만 설치된 초기 서버 기준).
 
-## 핵심 API 엔드포인트
-- `POST /auth/login` — JWT 발급.
-- `GET /auth/me` — 현재 사용자.
-- `PATCH /auth/password` — 비밀번호 변경.
-- `GET/POST/PATCH/DELETE /users` — 사용자 관리(권한 인가 필요).
-- `GET /schedule/global`, `POST /schedule/shifts`, `POST /schedule/assign` — 일정 관리.
-- `POST /requests`, `/requests/pending`, `/requests/{id}/approve|reject` — 결근/추가 근무 요청 흐름.
-- `GET /admin/audit-logs` — 마스터의 감사 로그 조회.
+- `docs/servcom_deployment_guide.md`
 
-## 참고 사항
-- 역할 계층: MASTER > OPERATOR > MEMBER (상위 역할은 하위 역할의 기능을 모두 볼 수 있음).
-- 시간대 가정: Asia/Seoul.
-- 시드 사용자 예시: `master/Master123!`, `operator/Operator123!`, 멤버 `kim|lee|park/Member123!`.
+이 문서에는 다음이 포함됩니다.
+1. 아키텍처/선택 근거
+2. `/srv/app` 표준 디렉토리
+3. 코드/설정 반영 포인트
+4. 처음부터 재현 가능한 설치 명령어
+5. 보안 위협 분석 및 최소 대응
