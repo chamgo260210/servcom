@@ -37,7 +37,12 @@ cleanup() {
 trap cleanup EXIT
 
 extract_url() {
-  rg -o "https://[a-zA-Z0-9.-]+\.${TUNNEL_HOST_FILTER}" "$CLOUDFLARED_LOG" -N | tail -n1 || true
+  local pattern="https://[a-zA-Z0-9.-]+\.${TUNNEL_HOST_FILTER}"
+  if command -v rg >/dev/null 2>&1; then
+    rg -o "$pattern" "$CLOUDFLARED_LOG" -N | tail -n1 || true
+  else
+    grep -Eo "$pattern" "$CLOUDFLARED_LOG" | tail -n1 || true
+  fi
 }
 
 for _ in $(seq 1 60); do
@@ -50,6 +55,7 @@ done
 
 if [[ -z "${URL:-}" ]]; then
   echo "[ERROR] Failed to parse trycloudflare URL from $CLOUDFLARED_LOG" >&2
+  echo "[HINT] Check cloudflared log: tail -n 100 $CLOUDFLARED_LOG" >&2
   exit 1
 fi
 

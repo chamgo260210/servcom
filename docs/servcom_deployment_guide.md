@@ -570,6 +570,26 @@ journalctl -u work-time-cloudflared -n 100 --no-pager
 
 > `SKIP_KV_UPDATE=true`는 임시 디버깅용입니다. 실제 운영 전에는 `false`로 되돌리세요.
 
+
+## 14-6. 현재 발생한 오류(`rg: command not found`) 해결
+
+이 오류는 서버에 `ripgrep(rg)`가 없을 때 발생할 수 있습니다.
+최신 스크립트는 `rg`가 없으면 자동으로 `grep -Eo`를 사용하도록 보강되어 있습니다.
+
+```bash
+cd /srv/app
+git pull
+sudo cp /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
+sudo chmod +x /srv/app/scripts/cloudflared-kv-updater.sh
+sudo systemctl daemon-reload
+sudo systemctl restart work-time-cloudflared.service
+
+journalctl -u work-time-cloudflared -n 120 --no-pager
+curl -fsS https://<worker-url>/_edge/status
+```
+
+`/_edge/status`에서 `has_active_url=true`가 나오면 Worker 리다이렉트가 정상 동작합니다.
+
 ---
 
 ## 15. 부팅 자동실행/장애 자동복구 확인
