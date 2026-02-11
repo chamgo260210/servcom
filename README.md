@@ -23,6 +23,7 @@
 - `TRUSTED_HOSTS` (기본 `localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev`)
 - `TRUST_ALL_HOSTS` (기본 `false`, 장애 대응용 임시 전체 허용)
 - `BACKEND_CORS_ORIGINS` (기본 비활성)
+- `MASTER_LOGIN_ID`/`MASTER_PASSWORD`/`MASTER_NAME`/`MASTER_IDENTIFIER` (users 테이블이 비어 있을 때 시작 시 부트스트랩 마스터 자동 생성)
 
 예시는 `deploy/.env.server.example` 참고.
 

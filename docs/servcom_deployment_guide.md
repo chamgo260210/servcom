@@ -711,6 +711,27 @@ curl -i https://<현재-터널-호스트>/api/health
 
 `200 OK`가 나오면 UI의 상태 체크/로그인이 정상화됩니다.
 
+
+
+### F) 마스터 계정은 SQL에 자동 포함되나?
+아닙니다. `MASTER_*`는 **DB schema.sql에 들어가는 정적 데이터가 아니라 런타임 부트스트랩 설정**입니다.
+
+최신 코드에서는 API 시작 시 `users` 테이블이 비어 있으면 `MASTER_*` 값으로 마스터 계정을 자동 생성합니다.
+
+검증:
+```bash
+# API 재시작(부트스트랩 트리거)
+sudo systemctl restart work-time-api
+
+# 계정 존재 확인
+psql "$DATABASE_URL" -c "select u.role, a.login_id from users u join auth_accounts a on a.user_id=u.id order by u.created_at;"
+```
+
+로그인 안 될 때 점검:
+1. `.env`의 `MASTER_LOGIN_ID`, `MASTER_PASSWORD` 값 확인
+2. `users`가 이미 비어있지 않으면 자동 생성이 다시 실행되지 않음(기존 계정 사용)
+3. 정말 초기화가 필요하면(주의) `POST /reset`의 `ALL`로 초기화 후 재시드하거나, DB에서 수동 계정 복구
+
 ### D) Quick Tunnel 429가 계속돼 서비스가 안 올라오는 경우(근본 해결)
 Quick Tunnel(계정 없는 임시 터널)은 Cloudflare 측 정책으로 429가 길게 지속될 수 있습니다.
 운영 환경에서는 **Named Tunnel**로 전환해야 재발을 막을 수 있습니다.
