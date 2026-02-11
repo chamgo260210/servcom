@@ -7,19 +7,37 @@ export default {
     // 1) very simple rate limit using KV (free-plan friendly)
     const minuteKey = `rl:${ip}:${Math.floor(Date.now() / 60000)}`;
     const count = Number((await env.TUNNEL_KV.get(minuteKey)) || '0') + 1;
-    if (count === 1) {
-      await env.TUNNEL_KV.put(minuteKey, String(count), { expirationTtl: 90 });
-    } else {
-      await env.TUNNEL_KV.put(minuteKey, String(count), { expirationTtl: 90 });
-      if (count > 120) {
-        return new Response('Too Many Requests', { status: 429 });
+    await env.TUNNEL_KV.put(minuteKey, String(count), { expirationTtl: 90 });
+    if (count > 120) {
+      return new Response('Too Many Requests', { status: 429 });
+    }
+
+    const active = (await env.TUNNEL_KV.get('active_url')) || (await env.TUNNEL_KV.get('ACTIVE_URL'));
+
+    // Optional debug endpoint (do not expose secrets)
+    if (url.pathname === '/_edge/status') {
+      let host = null;
+      try {
+        host = active ? new URL(active).hostname : null;
+      } catch {
+        host = 'invalid';
       }
+      return Response.json(
+        {
+          has_active_url: Boolean(active),
+          active_url_host: host,
+          kv_key_checked: ['active_url', 'ACTIVE_URL'],
+          block_direct_api: (env.BLOCK_DIRECT_API || 'false').toLowerCase() === 'true',
+        },
+        { status: 200 },
+      );
     }
 
     // 2) health endpoint can be proxied directly (optional)
     if (url.pathname === '/health') {
-      const active = await env.TUNNEL_KV.get('active_url');
-      if (!active) return htmlError('active_url is not configured in KV', 503);
+      if (!active) {
+        return htmlError('KV active_url is empty. Check updater logs and CF_* env values.', 503);
+      }
       return Response.redirect(`${active}/health`, 302);
     }
 
@@ -29,9 +47,8 @@ export default {
       return new Response('API access denied by edge policy', { status: 403 });
     }
 
-    const active = await env.TUNNEL_KV.get('active_url');
     if (!active) {
-      return htmlError('Tunnel endpoint is not ready. Please retry in a moment.', 503);
+      return htmlError('Tunnel endpoint is not ready. KV active_url is empty.', 503);
     }
 
     let target;

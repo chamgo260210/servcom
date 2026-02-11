@@ -296,6 +296,8 @@ CF_KV_NAMESPACE_ID=<KV_Namespace_ID>
 KV_KEY=active_url
 TUNNEL_HOST_FILTER=trycloudflare.com
 LOG_DIR=/var/log/work-time
+# true면 KV 업데이트 없이 터널만 실행(디버깅용)
+SKIP_KV_UPDATE=false
 ```
 
 ### 값은 어디서 가져오나?
@@ -466,6 +468,10 @@ curl -i http://127.0.0.1:8080/health
 
 이 URL이 사용자 고정 진입 URL이 됩니다.
 
+추가 디버그 엔드포인트:
+- `https://<worker-url>/_edge/status`
+  - `has_active_url=true` 이어야 리다이렉트가 동작합니다.
+
 ---
 
 ## 14. cloudflared 설치 + 자동 KV 업데이트
@@ -492,8 +498,18 @@ sudo chown -R www-data:www-data /var/log/work-time
 
 ## 14-3. systemd 등록
 
+> **중요:** 아래 값이 `.env`에 채워지지 않으면 서비스는 `exit-code`로 실패합니다.
+> - `CF_ACCOUNT_ID`
+> - `CF_API_TOKEN`
+> - `CF_KV_NAMESPACE_ID`
+
 ```bash
+# 값이 비어있는지 먼저 확인
+sudo grep -E '^(CF_ACCOUNT_ID|CF_API_TOKEN|CF_KV_NAMESPACE_ID)=' /srv/app/.env
+
 sudo cp /srv/app/deploy/systemd/work-time-cloudflared.service /etc/systemd/system/work-time-cloudflared.service
+sudo cp /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
+sudo chmod +x /srv/app/scripts/cloudflared-kv-updater.sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now work-time-cloudflared.service
 ```
@@ -505,7 +521,54 @@ systemctl status work-time-cloudflared --no-pager
 journalctl -u work-time-cloudflared -n 200 --no-pager
 ```
 
-정상이라면 로그에 trycloudflare URL 파싱 및 KV 업데이트 메시지가 보입니다.
+정상이라면 로그에 아래가 보여야 합니다.
+- `Active tunnel URL: https://...trycloudflare.com`
+- `KV key 'active_url' updated and verified`
+
+추가 검증(Worker 측):
+
+```bash
+curl -fsS https://<worker-url>/_edge/status
+```
+
+`has_active_url`가 `true`인지 확인하세요.
+
+## 14-5. 현재 발생한 오류(`CF_ACCOUNT_ID is required`) 해결
+
+해당 메시지는 스크립트/서비스 이상이 아니라 **Cloudflare 연동용 환경변수 미설정** 상태입니다.
+
+- `/srv/app/scripts/cloudflared-kv-updater.sh: ... CF_ACCOUNT_ID is required`
+
+해결 절차:
+
+```bash
+sudo editor /srv/app/.env
+# 아래 3개를 실제 값으로 채움
+# CF_ACCOUNT_ID=...
+# CF_API_TOKEN=...
+# CF_KV_NAMESPACE_ID=...
+# SKIP_KV_UPDATE=false  # 운영 모드
+
+sudo cp /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
+sudo chmod +x /srv/app/scripts/cloudflared-kv-updater.sh
+sudo cp /srv/app/deploy/systemd/work-time-cloudflared.service /etc/systemd/system/work-time-cloudflared.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed work-time-cloudflared.service
+sudo systemctl restart work-time-cloudflared.service
+systemctl status work-time-cloudflared --no-pager
+journalctl -u work-time-cloudflared -n 100 --no-pager
+curl -fsS https://<worker-url>/_edge/status
+```
+
+만약 KV 업데이트 없이 터널 URL만 먼저 확인하려면:
+
+```bash
+sudo sed -i 's/^SKIP_KV_UPDATE=.*/SKIP_KV_UPDATE=true/' /srv/app/.env
+sudo systemctl restart work-time-cloudflared.service
+journalctl -u work-time-cloudflared -n 100 --no-pager
+```
+
+> `SKIP_KV_UPDATE=true`는 임시 디버깅용입니다. 실제 운영 전에는 `false`로 되돌리세요.
 
 ---
 
