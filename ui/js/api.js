@@ -1,5 +1,9 @@
 // File: /ui/js/api.js
-const API_BASE_URL = "https://work-time-back.onrender.com";
+const API_BASE_URL = (() => {
+  const configured = window.localStorage.getItem('api_base_url_override');
+  if (configured) return configured.replace(/\/$/, '');
+  return '/api';
+})();
 
 function parseTokenExp(token) {
   if (!token) return null;
@@ -69,10 +73,10 @@ async function apiRequest(path, options = {}) {
       redirectToLogin();
       return;
     }
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (token) headers.Authorization = `Bearer ${token}`;
   }
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
   let resp = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   if (resp.status === 401 && !options.__noRetry && token) {
@@ -80,7 +84,9 @@ async function apiRequest(path, options = {}) {
       const newToken = await refreshToken();
       if (newToken) {
         const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
-        resp = await fetch(`${API_BASE_URL}${path}`, { ...options, headers: retryHeaders, __noRetry: true });
+        const retryOptions = { ...options, headers: retryHeaders };
+        retryOptions.__noRetry = true;
+        resp = await fetch(`${API_BASE_URL}${path}`, retryOptions);
       }
     } catch (e) {
       // fall through to redirect
