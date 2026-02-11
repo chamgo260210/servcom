@@ -1,8 +1,11 @@
 # File: /backend/app/deps.py
+import os
 from typing import Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from .config import get_settings
+from . import models
+from .core.security import get_password_hash
 
 settings = get_settings()
 engine = create_engine(
@@ -45,6 +48,24 @@ def _ensure_request_status_enum(db: Session) -> None:
     )
     db.commit()
     _request_status_enum_checked = True
+
+
+def _ensure_bootstrap_master(db: Session) -> None:
+    """Seed bootstrap master account from env when user table is empty."""
+    user_count = db.query(models.User).count()
+    if user_count > 0:
+        return
+
+    login_id = os.getenv("MASTER_LOGIN_ID", "master")
+    password = os.getenv("MASTER_PASSWORD", "Master123!")
+    name = os.getenv("MASTER_NAME", "Master Admin")
+    identifier = os.getenv("MASTER_IDENTIFIER", "MASTER_DEFAULT")
+
+    master = models.User(name=name, identifier=identifier, role=models.UserRole.MASTER)
+    db.add(master)
+    db.flush()
+    db.add(models.AuthAccount(user_id=master.id, login_id=login_id, password_hash=get_password_hash(password)))
+    db.commit()
 
 
 def initialize_database() -> None:
@@ -103,6 +124,7 @@ def initialize_database() -> None:
             )
         )
         db.commit()
+        _ensure_bootstrap_master(db)
     finally:
         db.close()
 
