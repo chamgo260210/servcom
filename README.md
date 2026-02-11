@@ -12,7 +12,7 @@
 - `db/schema.sql`: 최종 기준 스키마
 - `db/migrations/`: 순차 마이그레이션
 - `deploy/`: Nginx/systemd/cloudflared/Worker 배포 템플릿
-- `docs/servcom_deployment_guide.md`: 시설망(outbound-only) 재현 가이드
+- `docs/servcom_deployment_guide.md`: 시설망(outbound-only) + Tailscale SSH 포함 완전 초기 재현 가이드
 
 ## 환경 변수 (필수)
 - `DATABASE_URL`
@@ -42,7 +42,7 @@ done
 ```
 
 ## 시설망 서버컴 배포
-아래 문서를 순서대로 진행하세요.
+아래 문서를 순서대로 진행하세요(우분투만 설치된 초기 서버 기준).
 
 - `docs/servcom_deployment_guide.md`
 
