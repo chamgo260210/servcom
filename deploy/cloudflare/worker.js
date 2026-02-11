@@ -12,7 +12,35 @@ export default {
       return new Response('Too Many Requests', { status: 429 });
     }
 
-    const active = (await env.TUNNEL_KV.get('active_url')) || (await env.TUNNEL_KV.get('ACTIVE_URL'));
+    const kvCandidates = [
+      { key: 'active_url', value: await env.TUNNEL_KV.get('active_url') },
+      { key: 'ACTIVE_URL', value: await env.TUNNEL_KV.get('ACTIVE_URL') },
+    ];
+
+    const allowedHosts = (env.ALLOWED_TUNNEL_HOSTS || 'trycloudflare.com,cfargotunnel.com')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    let active = null;
+    let activeSourceKey = null;
+    let invalidHost = null;
+
+    for (const candidate of kvCandidates) {
+      if (!candidate.value) continue;
+
+      try {
+        const parsed = new URL(candidate.value);
+        if (allowedHosts.some((host) => parsed.hostname.endsWith(host))) {
+          active = candidate.value;
+          activeSourceKey = candidate.key;
+          break;
+        }
+        invalidHost = parsed.hostname;
+      } catch {
+        invalidHost = 'invalid_url';
+      }
+    }
 
     // Optional debug endpoint (do not expose secrets)
     if (url.pathname === '/_edge/status') {
@@ -25,7 +53,8 @@ export default {
       return Response.json(
         {
           has_active_url: Boolean(active),
-          active_url_host: host,
+          active_url_host: host || invalidHost,
+          active_url_source_key: activeSourceKey,
           kv_key_checked: ['active_url', 'ACTIVE_URL'],
           block_direct_api: (env.BLOCK_DIRECT_API || 'false').toLowerCase() === 'true',
         },
@@ -57,11 +86,6 @@ export default {
     } catch {
       return htmlError('KV active_url is invalid.', 500);
     }
-
-    const allowedHosts = (env.ALLOWED_TUNNEL_HOSTS || 'trycloudflare.com,cfargotunnel.com')
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean);
 
     if (!allowedHosts.some((host) => target.hostname.endsWith(host))) {
       return htmlError(`KV active_url host is invalid/non-tunnel. host=${target.hostname}`, 503);

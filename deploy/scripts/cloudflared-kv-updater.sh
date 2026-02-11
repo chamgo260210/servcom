@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-02-11-strict-host-v5"
+SCRIPT_VERSION="2026-02-11-self-heal-v7"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -10,6 +10,7 @@ SCRIPT_VERSION="2026-02-11-strict-host-v5"
 #   KV_KEY=active_url
 #   SKIP_KV_UPDATE=true            # run tunnel only without KV write
 #   TUNNEL_START_MAX_RETRIES=5
+#   RATE_LIMIT_COOLDOWN_SECONDS=300
 
 LOG_DIR=${LOG_DIR:-/var/log/work-time}
 mkdir -p "$LOG_DIR"
@@ -17,8 +18,10 @@ CLOUDFLARED_LOG="$LOG_DIR/cloudflared.log"
 
 TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com,cfargotunnel.com}
 KV_KEY=${KV_KEY:-active_url}
+KV_CLEANUP_KEYS=${KV_CLEANUP_KEYS:-active_url,ACTIVE_URL}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 TUNNEL_START_MAX_RETRIES=${TUNNEL_START_MAX_RETRIES:-5}
+RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
 
 echo "[INFO] cloudflared-kv-updater start version=${SCRIPT_VERSION} user=$(id -un)" >&2
 
@@ -41,6 +44,44 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+allowed_host() {
+  local host="$1"
+  [[ "$host" == *"trycloudflare.com" || "$host" == *"cfargotunnel.com" ]]
+}
+
+kv_endpoint_for_key() {
+  local key="$1"
+  echo "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${key}"
+}
+
+kv_get_key() {
+  local key="$1"
+  curl -fsS -X GET "$(kv_endpoint_for_key "$key")" -H "Authorization: Bearer ${CF_API_TOKEN}" || true
+}
+
+kv_delete_key() {
+  local key="$1"
+  curl -fsS -X DELETE "$(kv_endpoint_for_key "$key")" -H "Authorization: Bearer ${CF_API_TOKEN}" >/dev/null || true
+}
+
+sanitize_existing_kv() {
+  [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
+  IFS=',' read -ra keys <<<"$KV_CLEANUP_KEYS"
+  for key in "${keys[@]}"; do
+    key=$(echo "$key" | xargs)
+    [[ -z "$key" ]] && continue
+    local current
+    current=$(kv_get_key "$key")
+    [[ -z "$current" ]] && continue
+    local host="${current#https://}"
+    host="${host%%/*}"
+    if ! allowed_host "$host"; then
+      echo "[WARN] Found polluted KV value ($current). Deleting key ${key}." >&2
+      kv_delete_key "$key"
+    fi
+  done
+}
 
 extract_url() {
   local pattern='https://[A-Za-z0-9.-]+\.(trycloudflare\.com|cfargotunnel\.com)'
@@ -96,60 +137,62 @@ start_and_discover_url() {
   return 1
 }
 
-URL=""
-if URL=$(start_and_discover_url); then
-  :
-else
-  rc=$?
-  if [[ "$rc" -eq 79 ]]; then
-    echo "[WARN] Quick Tunnel is currently rate-limited(429). Keeping service alive with cooldown." >&2
-    echo "[HINT] wait and retry later; account-less quick tunnel has temporary limits." >&2
-    sleep 300
-    exit 79
+while true; do
+  sanitize_existing_kv
+
+  URL=""
+  if URL=$(start_and_discover_url); then
+    :
+  else
+    rc=$?
+    if [[ "$rc" -eq 79 ]]; then
+      echo "[WARN] Quick Tunnel still rate-limited (429). cooling down ${RATE_LIMIT_COOLDOWN_SECONDS}s..." >&2
+      sleep "$RATE_LIMIT_COOLDOWN_SECONDS"
+      continue
+    fi
+    echo "[ERROR] Failed to discover tunnel URL from $CLOUDFLARED_LOG" >&2
+    echo "[HINT] Check cloudflared log: tail -n 120 $CLOUDFLARED_LOG" >&2
+    tail -n 40 "$CLOUDFLARED_LOG" >&2 || true
+    sleep 30
+    continue
   fi
-fi
-if [[ -z "${URL:-}" ]]; then
-  echo "[ERROR] Failed to discover tunnel URL from $CLOUDFLARED_LOG" >&2
-  echo "[HINT] Check cloudflared log: tail -n 120 $CLOUDFLARED_LOG" >&2
-  tail -n 40 "$CLOUDFLARED_LOG" >&2 || true
-  exit 1
-fi
 
-echo "[INFO] Active tunnel URL: $URL"
+  echo "[INFO] Active tunnel URL: $URL"
 
-if [[ "$URL" != *"trycloudflare.com" && "$URL" != *"cfargotunnel.com" ]]; then
-  echo "[ERROR] Refusing to write non-tunnel URL to KV: $URL" >&2
-  exit 1
-fi
+  local_host="${URL#https://}"
+  local_host="${local_host%%/*}"
+  if ! allowed_host "$local_host"; then
+    echo "[ERROR] Refusing to write non-tunnel URL to KV: $URL" >&2
+    sleep 30
+    continue
+  fi
 
-# Restart cloudflared in long-running mode after successful discovery to avoid stale pid/log states
-: >"$CLOUDFLARED_LOG"
-cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
-CF_PID=$!
+  : >"$CLOUDFLARED_LOG"
+  cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
+  CF_PID=$!
 
-if [[ "${SKIP_KV_UPDATE,,}" == "true" ]]; then
-  echo "[WARN] SKIP_KV_UPDATE=true, KV update skipped"
+  if [[ "${SKIP_KV_UPDATE,,}" == "true" ]]; then
+    echo "[WARN] SKIP_KV_UPDATE=true, KV update skipped"
+    wait "$CF_PID"
+    continue
+  fi
+
+  curl -fsS -X PUT \
+    "$(kv_endpoint_for_key "$KV_KEY")" \
+    -H "Authorization: Bearer ${CF_API_TOKEN}" \
+    -H "Content-Type: text/plain" \
+    --data "$URL" >/dev/null
+
+  kv_readback=$(kv_get_key "$KV_KEY")
+  if [[ "$kv_readback" != "$URL" ]]; then
+    echo "[ERROR] KV readback mismatch. expected=$URL actual=$kv_readback" >&2
+    kill "$CF_PID" >/dev/null 2>&1 || true
+    wait "$CF_PID" 2>/dev/null || true
+    CF_PID=""
+    sleep 10
+    continue
+  fi
+
+  echo "[INFO] KV key '${KV_KEY}' updated and verified"
   wait "$CF_PID"
-  exit 0
-fi
-
-KV_ENDPOINT="https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${KV_KEY}"
-
-curl -fsS -X PUT \
-  "$KV_ENDPOINT" \
-  -H "Authorization: Bearer ${CF_API_TOKEN}" \
-  -H "Content-Type: text/plain" \
-  --data "$URL" >/dev/null
-
-kv_readback=$(curl -fsS -X GET \
-  "$KV_ENDPOINT" \
-  -H "Authorization: Bearer ${CF_API_TOKEN}" )
-
-if [[ "$kv_readback" != "$URL" ]]; then
-  echo "[ERROR] KV readback mismatch. expected=$URL actual=$kv_readback" >&2
-  exit 1
-fi
-
-echo "[INFO] KV key '${KV_KEY}' updated and verified"
-
-wait "$CF_PID"
+done
