@@ -1,0 +1,19 @@
+[Unit]
+Description=Work Time Cloudflare Quick Tunnel + KV updater
+After=network-online.target work-time-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/app
+EnvironmentFile=/srv/app/.env
+ExecStart=/srv/app/scripts/cloudflared-kv-updater.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
