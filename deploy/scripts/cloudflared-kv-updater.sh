@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-02-11-stream-retry-v4"
+SCRIPT_VERSION="2026-02-11-strict-host-v5"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -49,6 +49,8 @@ extract_url() {
 
 start_and_discover_url() {
   local attempt
+  local saw_rate_limit=false
+
   for attempt in $(seq 1 "$TUNNEL_START_MAX_RETRIES"); do
     : >"$CLOUDFLARED_LOG"
     cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
@@ -64,11 +66,12 @@ start_and_discover_url() {
       fi
 
       if grep -q 'status_code="429 Too Many Requests"' "$CLOUDFLARED_LOG"; then
+        saw_rate_limit=true
         echo "[WARN] Quick Tunnel rate-limited (429). backing off before retry..." >&2
         kill "$CF_PID" >/dev/null 2>&1 || true
         wait "$CF_PID" 2>/dev/null || true
         CF_PID=""
-        sleep $((attempt * 20))
+        sleep $((attempt * 30))
         break
       fi
 
@@ -87,10 +90,24 @@ start_and_discover_url() {
     fi
   done
 
+  if [[ "$saw_rate_limit" == "true" ]]; then
+    return 79
+  fi
   return 1
 }
 
-URL=$(start_and_discover_url || true)
+URL=""
+if URL=$(start_and_discover_url); then
+  :
+else
+  rc=$?
+  if [[ "$rc" -eq 79 ]]; then
+    echo "[WARN] Quick Tunnel is currently rate-limited(429). Keeping service alive with cooldown." >&2
+    echo "[HINT] wait and retry later; account-less quick tunnel has temporary limits." >&2
+    sleep 300
+    exit 79
+  fi
+fi
 if [[ -z "${URL:-}" ]]; then
   echo "[ERROR] Failed to discover tunnel URL from $CLOUDFLARED_LOG" >&2
   echo "[HINT] Check cloudflared log: tail -n 120 $CLOUDFLARED_LOG" >&2
@@ -99,6 +116,11 @@ if [[ -z "${URL:-}" ]]; then
 fi
 
 echo "[INFO] Active tunnel URL: $URL"
+
+if [[ "$URL" != *"trycloudflare.com" && "$URL" != *"cfargotunnel.com" ]]; then
+  echo "[ERROR] Refusing to write non-tunnel URL to KV: $URL" >&2
+  exit 1
+fi
 
 # Restart cloudflared in long-running mode after successful discovery to avoid stale pid/log states
 : >"$CLOUDFLARED_LOG"
