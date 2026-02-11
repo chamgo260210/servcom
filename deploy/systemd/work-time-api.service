@@ -6,9 +6,10 @@ After=network.target postgresql.service
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/srv/app
+WorkingDirectory=/srv/app/backend
 EnvironmentFile=/srv/app/.env
-ExecStart=/srv/app/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Environment=PYTHONPATH=/srv/app/backend
+ExecStart=/srv/app/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=3
 StandardOutput=journal

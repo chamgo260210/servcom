@@ -346,6 +346,8 @@ curl -i http://127.0.0.1:8080/health
 sudo cp /srv/app/deploy/systemd/work-time-api.service /etc/systemd/system/work-time-api.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now work-time-api.service
+# 서비스 파일 변경 후에는 restart 필수
+sudo systemctl restart work-time-api.service
 ```
 
 ## 12-2. 상태/로그 확인
@@ -354,6 +356,30 @@ sudo systemctl enable --now work-time-api.service
 systemctl status work-time-api --no-pager
 journalctl -u work-time-api -n 200 --no-pager
 curl -fsS http://127.0.0.1:8000/health
+```
+
+## 12-3. 현재 발생한 오류(`ModuleNotFoundError: No module named app`) 해결
+
+해당 오류는 systemd의 실행 기준 경로가 `/srv/app`인데, 코드가 `from app import ...` 구조여서
+파이썬 import path에 `/srv/app/backend`가 포함되지 않아 발생합니다.
+
+이미 본 저장소의 서비스 파일은 아래처럼 수정되어 있습니다.
+
+- `WorkingDirectory=/srv/app/backend`
+- `Environment=PYTHONPATH=/srv/app/backend`
+- `ExecStart=... uvicorn main:app ...`
+
+서버에서 반드시 다시 반영하세요.
+
+```bash
+sudo cp /srv/app/deploy/systemd/work-time-api.service /etc/systemd/system/work-time-api.service
+sudo systemctl daemon-reload
+sudo systemctl restart work-time-api.service
+
+systemctl status work-time-api --no-pager
+journalctl -u work-time-api -n 100 --no-pager
+curl -fsS http://127.0.0.1:8000/health
+curl -i http://127.0.0.1:8080/health
 ```
 
 ---
