@@ -192,8 +192,27 @@ CREATE DATABASE work_time OWNER worktime;
 
 ## 7-3. 접속 테스트
 
+`!`, `@`, `#` 같은 특수문자가 비밀번호에 있으면 Bash 히스토리 확장(`event not found`)이 발생할 수 있습니다.
+아래 방법 중 하나를 사용하세요.
+
 ```bash
+# 방법 A) URL 전체를 작은따옴표로 감싸기 (권장)
+psql 'postgresql://worktime:강력한비밀번호@127.0.0.1:5432/work_time' -c 'SELECT 1;'
+
+# 방법 B) PGPASSWORD 사용
+PGPASSWORD='강력한비밀번호' psql -h 127.0.0.1 -U worktime -d work_time -c 'SELECT 1;'
+
+# 방법 C) 히스토리 확장 끄기 (현재 셸 세션 한정)
+set +H
 psql "postgresql://worktime:강력한비밀번호@127.0.0.1:5432/work_time" -c "SELECT 1;"
+```
+
+> 참고: `postgresql.service`가 `active (exited)`로 보여도 Ubuntu의 wrapper 서비스 특성상 정상일 수 있습니다.
+> 실제 DB 프로세스는 아래로 확인하세요.
+
+```bash
+sudo systemctl status postgresql@14-main --no-pager
+pg_isready -h 127.0.0.1 -p 5432
 ```
 
 ---
@@ -205,6 +224,7 @@ psql "postgresql://worktime:강력한비밀번호@127.0.0.1:5432/work_time" -c "
 ```bash
 cd /srv/app
 export DATABASE_URL='postgresql://worktime:강력한비밀번호@127.0.0.1:5432/work_time'
+# 비밀번호에 특수문자가 많다면 DATABASE_URL 대신 PGPASSWORD 방식 권장
 
 psql "$DATABASE_URL" -f db/schema.sql
 for f in db/migrations/*.sql; do
@@ -535,4 +555,26 @@ systemctl status nginx --no-pager
 - [ ] `work-time-api`, `work-time-cloudflared`, `nginx` active
 - [ ] Worker URL에서 UI/API 정상
 - [ ] 재부팅 후 자동기동 확인
+
+
+---
+
+## 20. 빠른 트러블슈팅 (현재 질문 사례)
+
+질문에 나온 아래 에러는 DB 문제라기보다 **Bash 히스토리 확장** 문제입니다.
+
+- `-bash: !@127.0.0.1: event not found`
+
+즉, 비밀번호 `Chamgo1234!`의 `!`를 셸이 이벤트 치환으로 해석한 것입니다.
+다음 명령으로 바로 해결됩니다.
+
+```bash
+PGPASSWORD='Chamgo1234!' psql -h 127.0.0.1 -U worktime -d work_time -c 'SELECT 1;'
+```
+
+또는:
+
+```bash
+psql 'postgresql://worktime:Chamgo1234!@127.0.0.1:5432/work_time' -c 'SELECT 1;'
+```
 
