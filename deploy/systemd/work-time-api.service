@@ -1,0 +1,19 @@
+[Unit]
+Description=Work Time FastAPI service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/app/backend
+EnvironmentFile=/srv/app/.env
+Environment=PYTHONPATH=/srv/app/backend
+ExecStart=/srv/app/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
