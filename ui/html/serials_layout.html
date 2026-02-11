@@ -1,0 +1,205 @@
+<!-- File: /ui/html/serials_layout.html -->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>연속 간행물 센터 - 배치도</title>
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/serials.css" />
+  <script type="module">
+    import { redirectToMobileIfNeeded } from '../js/mobile.js';
+    redirectToMobileIfNeeded('../mobile/serials_layout.html');
+  </script>
+</head>
+
+<body class="app-loading" data-home="dashboard.html">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="header">
+    <div class="header-left">
+      <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      <button class="logo serials-logo-button" id="serials-logo" type="button">
+        <img src="../assets/logo.png" width="32" alt="logo" /> 연속 간행물 센터
+      </button>
+    </div>
+    <div class="header-right">
+      <div class="system-status-badge inline" id="status-card">
+        <div class="status-label">연결 상태</div>
+        <div class="system-status">
+          <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">서버 확인 중</span>
+          </span>
+          <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">DB 확인 중</span>
+          </span>
+        </div>
+        <div class="status-meta" id="status-meta">상태 체크 중...</div>
+      </div>
+      <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+        <span class="theme-icon">☀️</span>
+        <span id="theme-label">라이트 모드</span>
+      </button>
+      <span id="session-countdown" class="status-chip session-timer"></span>
+      <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+      <div class="muted">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</div>
+      <button class="btn muted" id="logout-btn">로그아웃</button>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">연속 간행물</div>
+      <a class="nav-link" data-page="serials-home" href="serials_home.html">홈</a>
+      <a class="nav-link" data-page="serials-list" href="serials_list.html">조회 · 검색</a>
+      <a class="nav-link" data-page="serials-manage" data-min-role="OPERATOR" href="serials_manage.html">등록 · 수정</a>
+      <a class="nav-link" data-page="serials-layout" data-min-role="OPERATOR" href="serials_layout.html">배치도 · 서가 관리</a>
+      <div class="nav-divider"></div>
+      <a class="nav-link nav-secondary" href="dashboard.html" data-return-target="dashboard.html">근무 시스템 돌아가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="content">
+      <div class="layout-editor-container">
+        <!-- 메인 편집 영역 -->
+        <div class="layout-main">
+          <section class="card">
+            <div class="card-title-row">
+              <div class="card-title">평면도 편집</div>
+              <div class="title-actions">
+                <select id="layout-select" class="compact-select"></select>
+                <button class="btn tiny" id="layout-create-btn">새 배치도</button>
+                <button class="btn tiny danger" id="layout-delete-btn" style="display:none;">삭제</button>
+              </div>
+            </div>
+
+            <!-- 툴바 -->
+            <div class="editor-toolbar" id="editor-toolbar">
+              <div class="tool-group">
+                <button class="tool-btn active" data-mode="select" title="선택 모드">
+                  <span class="icon">👆</span> 선택
+                </button>
+                <button class="tool-btn" data-mode="wall" title="벽 그리기">
+                  <span class="icon">✏️</span> 벽 그리기
+                </button>
+              </div>
+              <div class="tool-divider"></div>
+              <div class="tool-group">
+                <button class="tool-btn" id="zoom-reset" title="초기화">↺</button>
+              </div>
+              <div class="tool-spacer"></div>
+              <div class="tool-group">
+                <button class="btn primary small" id="save-layout-btn">저장</button>
+              </div>
+            </div>
+
+            <!-- 캔버스 -->
+            <div class="canvas-wrapper">
+              <div id="layout-canvas" class="layout-canvas fixed-canvas">
+                <!-- SVG가 여기에 렌더링 됩니다 -->
+              </div>
+            </div>
+
+            <div class="canvas-status">
+              <span id="cursor-coords">0, 0</span>
+              <span class="separator">|</span>
+              <span id="canvas-status-text">준비</span>
+            </div>
+          </section>
+        </div>
+
+        <!-- 사이드 패널 (속성 및 팔레트) -->
+        <div class="layout-sidebar">
+
+          <!-- 1. 속성 패널 -->
+          <section class="card sidebar-card" id="properties-panel">
+            <div class="card-title">속성</div>
+            <div id="properties-content">
+              <div class="muted center-message">선택된 요소가 없습니다.</div>
+            </div>
+          </section>
+
+          <!-- 2. 서가 팔레트 -->
+          <section class="card sidebar-card flex-grow">
+            <div class="card-title-row">
+              <div class="card-title">서가 팔레트</div>
+              <button class="btn tiny secondary" id="manage-types-btn">관리</button>
+            </div>
+            <div class="palette-container" id="shelf-palette">
+              <!-- 서가 타입 목록이 여기에 표시됨 (드래그 가능) -->
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+      <!-- 숨겨진 모달/다이얼로그들 -->
+      <dialog id="layout-meta-dialog" class="modal">
+        <form id="layout-meta-form">
+          <h3>배치도 정보</h3>
+          <div class="form-row">
+            <label>이름</label>
+            <input type="text" name="name" required placeholder="예: 1층 자료실">
+          </div>
+          <div class="form-row">
+            <label>메모</label>
+            <input type="text" name="note">
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" data-action="close">취소</button>
+            <button type="submit" class="btn primary">확인</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="shelf-type-dialog" class="modal">
+        <form id="shelf-type-form">
+          <h3 id="shelf-type-dialog-title">서가 타입 관리</h3>
+          <input type="hidden" name="id">
+          <div class="form-row">
+            <label>타입명</label>
+            <input type="text" name="name" required placeholder="예: 5단 복식">
+          </div>
+          <div class="form-row two-col">
+            <div>
+              <label>행 (단)</label>
+              <input type="number" name="rows" min="1" max="10" value="5">
+            </div>
+            <div>
+              <label>열 (칸)</label>
+              <input type="number" name="columns" min="1" max="20" value="3">
+            </div>
+          </div>
+          <!-- 크기는 행/열에 의해 자동 계산되지만 미세조정 필요할 수 있음 -->
+          <div class="form-note">크기는 행/열 개수에 따라 자동 설정됩니다.</div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" data-action="close">닫기</button>
+            <button type="button" class="btn" id="shelf-type-new">새로 등록</button>
+            <button type="submit" class="btn primary">저장</button>
+          </div>
+
+          <div class="divider"></div>
+          <div class="compact-list" id="shelf-type-list">
+            <!-- 목록 표시 -->
+          </div>
+        </form>
+      </dialog>
+
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { initSerials } from '../js/serials.js';
+
+    await initAppLayout('serials-layout');
+    initSerials();
+  </script>
+</body>
+
+</html>

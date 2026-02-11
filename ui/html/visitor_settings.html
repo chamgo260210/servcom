@@ -1,0 +1,165 @@
+<!-- File: /ui/html/visitor_settings.html -->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>학년도 · 설정 - 출입자 통계 센터</title>
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/visitor.css" />
+  <script type="module">
+    import { redirectToMobileIfNeeded } from '../js/mobile.js';
+    redirectToMobileIfNeeded('../mobile/visitor_settings.html');
+  </script>
+</head>
+
+<body class="app-loading visitor-portal" data-home="visitor_dashboard.html">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="header">
+    <div class="header-left">
+      <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      <div class="logo"><img src="../assets/logo.png" width="32" alt="logo" /> 출입자 통계 센터</div>
+    </div>
+    <div class="header-right">
+      <div class="system-status-badge inline" id="status-card">
+        <div class="status-label">연결 상태</div>
+        <div class="system-status">
+          <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">서버 확인 중</span>
+          </span>
+          <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">DB 확인 중</span>
+          </span>
+        </div>
+        <div class="status-meta" id="status-meta">상태 체크 중...</div>
+      </div>
+      <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+        <span class="theme-icon">☀️</span>
+        <span id="theme-label">라이트 모드</span>
+      </button>
+      <span id="session-countdown" class="status-chip session-timer"></span>
+      <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+      <div class="muted">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</div>
+      <button class="btn muted" id="logout-btn">로그아웃</button>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">출입자 통계</div>
+      <a class="nav-link" data-page="visitor-dashboard" href="visitor_dashboard.html">월간 대시보드</a>
+      <a class="nav-link" data-page="visitor-entry" href="visitor_entry.html">일일 입력</a>
+      <a class="nav-link" data-page="visitor-bulk-entry" data-min-role="OPERATOR" href="visitor_bulk_entry.html">일괄
+        입력</a>
+      <a class="nav-link" data-page="visitor-summary" href="visitor_summary.html">통계 리포트</a>
+      <a class="nav-link" data-page="visitor-settings" data-min-role="OPERATOR" href="visitor_settings.html">학년도 ·
+        설정</a>
+      <div class="nav-divider"></div>
+      <a class="nav-link nav-secondary" href="dashboard.html" data-return-target="dashboard.html">근무 시스템 돌아가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="content">
+      <section class="card visitor-year-bar">
+        <div class="card-title">학년도 선택</div>
+        <div class="inline-form">
+          <div class="form-row">
+            <label for="year-select">학년도</label>
+            <select id="year-select"></select>
+          </div>
+          <div class="form-row form-row-action">
+            <label aria-hidden="true">학년도 삭제</label>
+            <button class="btn danger" id="delete-year" type="button">학년도 삭제</button>
+          </div>
+        </div>
+        <div class="helper-grid" id="year-summary">
+          <div class="helper-item">
+            <div class="muted">학년도</div>
+            <strong id="year-academic">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">기간</div>
+            <strong id="year-range">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">학년도 명칭</div>
+            <strong id="year-label">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">학년도 기준 설정</div>
+        <p class="muted">학년도는 매년 3월부터 다음 해 2월까지 자동으로 적용됩니다.</p>
+        <div class="inline-form" id="year-controls">
+          <div class="form-row">
+            <label for="new-year-input">학년도 기준 연도</label>
+            <input id="new-year-input" type="number" min="2000" placeholder="2025" />
+          </div>
+          <div class="form-row form-row-action">
+            <label aria-hidden="true">학년도 적용</label>
+            <button class="btn" id="apply-year">학년도 적용</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">학기/방학 기간 설정</div>
+        <div class="inline-form" id="period-form">
+          <div class="form-row">
+            <label>1학기</label>
+            <input type="date" id="period-semester1-start" />
+            <input type="date" id="period-semester1-end" />
+          </div>
+          <div class="form-row">
+            <label>여름방학</label>
+            <input type="date" id="period-summer-start" />
+            <input type="date" id="period-summer-end" />
+          </div>
+          <div class="form-row">
+            <label>2학기</label>
+            <input type="date" id="period-semester2-start" />
+            <input type="date" id="period-semester2-end" />
+          </div>
+          <div class="form-row">
+            <label>겨울방학</label>
+            <input type="date" id="period-winter-start" />
+            <input type="date" id="period-winter-end" />
+          </div>
+          <div class="form-row form-row-action">
+            <label aria-hidden="true">기간 저장</label>
+            <button class="btn" id="save-periods">기간 저장</button>
+          </div>
+        </div>
+        <div class="muted">기간을 입력하면 해당 구간의 합계가 자동 계산됩니다.</div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">기록 초기화 · 삭제</div>
+        <div class="muted">월별 기록만 초기화할 수 있습니다. 삭제 후 복구는 불가능합니다.</div>
+        <div class="inline-form">
+          <div class="form-row">
+            <label for="reset-month">대상 월</label>
+            <input id="reset-month" type="month" />
+          </div>
+          <button class="btn danger" id="reset-month-entries">월간 데이터 초기화</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { initVisitorStats } from '../js/visitors.js';
+
+    await initAppLayout('visitor-settings');
+    initVisitorStats();
+  </script>
+</body>
+
+</html>

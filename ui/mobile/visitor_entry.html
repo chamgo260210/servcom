@@ -1,0 +1,156 @@
+<!-- File: /ui/mobile/visitor_entry.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>일일 입력 - 출입자 통계 센터</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <link rel="stylesheet" href="../css/visitor.css" />
+  <script type="module">
+    import { redirectToDesktopIfNeeded } from '../js/mobile.js';
+    redirectToDesktopIfNeeded('../html/visitor_entry.html');
+  </script>
+</head>
+<body class="mobile-app app-loading visitor-portal" data-home="visitor_dashboard.html">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="mobile-header">
+    <div class="mobile-top">
+      <div class="mobile-top-left">
+        <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      </div>
+      <div class="mobile-top-center">
+        <div class="mobile-brand"><img src="../assets/logo.png" alt="logo" />통계 센터</div>
+      </div>
+      <div class="mobile-top-right mobile-actions">
+        <button class="btn tiny muted" id="logout-btn">로그아웃</button>
+      </div>
+    </div>
+    <div class="mobile-status-row">
+      <div class="mobile-status-line">
+        <div class="system-status-badge">
+          <div class="status-label">연결 상태</div>
+          <div class="system-status">
+            <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">서버 확인 중</span>
+            </span>
+            <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">DB 확인 중</span>
+            </span>
+          </div>
+          <div class="status-meta" id="status-meta">상태 체크 중...</div>
+        </div>
+        <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+          <span class="theme-icon">☀️</span>
+          <span id="theme-label">라이트 모드</span>
+        </button>
+        <span id="session-countdown" class="status-chip session-timer"></span>
+      </div>
+      <div class="mobile-session">
+        <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+        <span class="mobile-user">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</span>
+      </div>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">출입자 통계</div>
+      <a class="nav-link" data-page="visitor-dashboard" href="visitor_dashboard.html">월간 대시보드</a>
+      <a class="nav-link" data-page="visitor-entry" href="visitor_entry.html">일일 입력</a>
+      <a class="nav-link" data-page="visitor-bulk-entry" data-min-role="OPERATOR" href="visitor_bulk_entry.html">일괄 입력</a>
+      <a class="nav-link" data-page="visitor-summary" href="visitor_summary.html">통계 리포트</a>
+      <a class="nav-link" data-page="visitor-settings" data-min-role="OPERATOR" href="visitor_settings.html">학년도 · 설정</a>
+      <div class="nav-divider"></div>
+      <a class="nav-link nav-secondary" href="dashboard.html" data-return-target="dashboard.html">근무 시스템 돌아가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="mobile-content">
+      <section class="card" id="entry">
+        <div class="card-title">일일 방문자 입력</div>
+        <div id="entry-hint" class="muted">전일 합산을 불러오거나 입력한 뒤 Count를 입력하면 금일 합산과 출입자를 계산합니다. 기록 저장 시 금일 합산이 다음 전일 합산으로 저장됩니다.</div>
+        <div id="entry-message" class="form-message" role="alert" aria-live="polite"></div>
+        <div class="inline-form">
+          <div class="form-row">
+            <label for="visit-date">날짜</label>
+            <input id="visit-date" type="date" disabled />
+          </div>
+          <div class="form-row">
+            <label for="count1">Count 1</label>
+            <input id="count1" type="number" min="0" value="0" />
+          </div>
+          <div class="form-row">
+            <label for="count2">Count 2</label>
+            <input id="count2" type="number" min="0" value="0" />
+          </div>
+          <div class="form-row">
+            <label for="prev-total">전일 합산</label>
+            <div class="inline-input">
+              <input id="prev-total" type="number" min="0" placeholder="전일 합산 입력" />
+              <button class="btn tiny secondary" id="load-prev-total" type="button">불러오기</button>
+            </div>
+          </div>
+          <button class="btn" id="save-entry">기록 저장</button>
+          <button class="btn secondary" id="reset-entry">초기화</button>
+          <button class="btn danger" id="delete-entry" style="display:none;">기록 삭제</button>
+        </div>
+        <div class="helper-grid" id="entry-preview">
+          <div class="helper-item">
+            <div class="muted">전일 합산</div>
+            <strong id="preview-prev-total">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">금일 합산</div>
+            <strong id="preview-total">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">금일 출입자</div>
+            <strong id="preview-daily">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">최근 수정자</div>
+            <strong id="preview-updater">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="today-entry-card">
+        <div class="card-title">오늘 기록</div>
+        <div class="muted" id="today-entry-status">오늘 기록이 없습니다.</div>
+        <div class="helper-grid" id="today-entry-summary" style="display:none;">
+          <div class="helper-item">
+            <div class="muted">날짜</div>
+            <strong id="today-entry-date">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">금일 출입자</div>
+            <strong id="today-entry-visitors">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">최근 수정자</div>
+            <strong id="today-entry-updater">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">수정 시각</div>
+            <strong id="today-entry-updated">-</strong>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { initVisitorStats } from '../js/visitors.js';
+
+    await initAppLayout('visitor-entry');
+    initVisitorStats();
+  </script>
+</body>
+</html>

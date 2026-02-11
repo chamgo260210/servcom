@@ -1,0 +1,186 @@
+/* File: /ui/css/visitor.css */
+.visitor-portal {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  color: #0f172a;
+}
+
+.visitor-portal .logo {
+  color: #1e293b;
+}
+
+.visitor-portal .sidebar {
+  background: #111827;
+}
+
+.visitor-portal .sidebar-title {
+  color: #93c5fd;
+}
+
+.visitor-portal .sidebar a.active {
+  background: rgba(59, 130, 246, 0.22);
+  color: #e0f2fe;
+}
+
+.visitor-portal .sidebar a.nav-secondary {
+  color: #cbd5f5;
+  font-weight: 500;
+}
+
+.visitor-portal .sidebar a.nav-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.visitor-portal .nav-divider {
+  height: 1px;
+  background: rgba(148, 163, 184, 0.4);
+  margin: 12px 0;
+}
+
+.visitor-portal .content,
+.visitor-portal .mobile-content {
+  width: min(100%, 1100px);
+}
+
+.visitor-portal .card {
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+}
+
+.visitor-portal .card-title {
+  color: #1d4ed8;
+}
+
+.visitor-portal .visitor-year-bar {
+  display: grid;
+  gap: 12px;
+}
+
+.visitor-portal .calendar-grid .calendar-value {
+  font-weight: 600;
+}
+
+.visitor-portal .calendar-grid .calendar-author {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.visitor-portal .calendar-grid .calendar-cell.is-today {
+  border: 1px solid rgba(37, 99, 235, 0.6);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.visitor-portal .entry-month-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.visitor-portal .entry-month-label {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.visitor-portal .inline-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visitor-portal .inline-input input {
+  flex: 1;
+}
+
+.visitor-portal .form-row-action label {
+  visibility: hidden;
+}
+
+.visitor-portal .bulk-entry-month {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.visitor-portal .bulk-entry-month .table-scroll {
+  max-height: 380px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.visitor-portal .bulk-entry-month .table-scroll table {
+  margin: 0;
+}
+
+.visitor-portal .bulk-entry-month input[type="number"] {
+  width: 100%;
+}
+
+.visitor-portal .form-message {
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: rgba(248, 113, 113, 0.12);
+  color: #b91c1c;
+  display: none;
+}
+
+.visitor-portal .form-message.show {
+  display: block;
+}
+
+:root[data-theme="dark"] .visitor-portal {
+  background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .visitor-portal .card {
+  border-color: #1f2937;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] .visitor-portal .card-title {
+  color: #93c5fd;
+}
+
+:root[data-theme="dark"] .visitor-portal .sidebar {
+  background: #0b1220;
+}
+
+:root[data-theme="dark"] .visitor-portal .calendar-grid .calendar-author {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .visitor-portal .calendar-grid .calendar-cell.is-today {
+  border-color: rgba(148, 197, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(148, 197, 255, 0.25);
+}
+
+:root[data-theme="dark"] .visitor-portal .entry-month-label {
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .visitor-portal .bulk-entry-month .table-scroll {
+  border-color: #1f2937;
+}
+
+:root[data-theme="dark"] .visitor-portal .bulk-entry-month input[type="number"] {
+  background: #0f172a;
+  border-color: #1f2937;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .visitor-portal .form-message {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+}
+
+:root[data-theme="dark"] .visitor-portal .sidebar-title {
+  color: #60a5fa;
+}
+
+:root[data-theme="dark"] .visitor-portal .nav-divider {
+  background: rgba(148, 163, 184, 0.2);
+}

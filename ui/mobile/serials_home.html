@@ -1,0 +1,116 @@
+<!-- File: /ui/mobile/serials_home.html -->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>연속 간행물 센터 - 홈</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <link rel="stylesheet" href="../css/serials.css" />
+  <script type="module">
+    import { redirectToDesktopIfNeeded } from '../js/mobile.js';
+    redirectToDesktopIfNeeded('../html/serials_home.html');
+  </script>
+</head>
+
+<body class="mobile-app app-loading" data-home="dashboard.html">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="mobile-header">
+    <div class="mobile-top">
+      <div class="mobile-top-left">
+        <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      </div>
+      <div class="mobile-top-center">
+        <button class="mobile-brand serials-mobile-logo-button" id="serials-logo" type="button">
+          <img src="../assets/logo.png" alt="logo" />연속 간행물
+        </button>
+      </div>
+      <div class="mobile-top-right mobile-actions">
+        <button class="btn tiny muted" id="logout-btn">로그아웃</button>
+      </div>
+    </div>
+    <div class="mobile-status-row">
+      <div class="mobile-status-line">
+        <div class="system-status-badge">
+          <div class="status-label">연결 상태</div>
+          <div class="system-status">
+            <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">서버 확인 중</span>
+            </span>
+            <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">DB 확인 중</span>
+            </span>
+          </div>
+          <div class="status-meta" id="status-meta">상태 체크 중...</div>
+        </div>
+        <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+          <span class="theme-icon">☀️</span>
+          <span id="theme-label">라이트 모드</span>
+        </button>
+        <span id="session-countdown" class="status-chip session-timer"></span>
+      </div>
+      <div class="mobile-session">
+        <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+        <span class="mobile-user">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</span>
+      </div>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">연속 간행물</div>
+      <a class="nav-link" data-page="serials-home" href="serials_home.html">홈</a>
+      <a class="nav-link" data-page="serials-list" href="serials_list.html">조회 · 검색</a>
+      <a class="nav-link" data-page="serials-manage" data-min-role="OPERATOR" href="serials_manage.html">등록 · 수정</a>
+      <a class="nav-link" data-page="serials-layout" data-min-role="OPERATOR" href="serials_layout.html">배치도 · 서가 관리</a>
+      <div class="nav-divider"></div>
+      <a class="nav-link nav-secondary" href="dashboard.html" data-return-target="dashboard.html">근무 시스템 돌아가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="mobile-content">
+      <section class="card">
+        <div class="card-title">요약</div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">전체 간행물</div>
+            <div class="stat-value" id="serials-total-count">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">수증</div>
+            <div class="stat-value" id="serials-donation-count">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">구독</div>
+            <div class="stat-value" id="serials-subscription-count">-</div>
+          </div>
+        </div>
+      </section>
+
+
+
+      <section class="card">
+        <div class="card-title">전체 배치도</div>
+        <p class="muted">서가를 선택하면 배치된 간행물 정보를 확인할 수 있습니다.</p>
+        <div class="layout-canvas" id="layout-canvas"></div>
+        <div class="layout-legend" id="layout-legend"></div>
+      </section>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { initSerials } from '../js/serials.js';
+
+    await initAppLayout('serials-home');
+    initSerials();
+  </script>
+</body>
+
+</html>

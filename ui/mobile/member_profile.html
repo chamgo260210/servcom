@@ -1,0 +1,149 @@
+<!-- File: /ui/mobile/member_profile.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>내 프로필 - 모바일</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <script type="module">
+    import { redirectToDesktopIfNeeded } from '../js/mobile.js';
+    redirectToDesktopIfNeeded('../html/member_profile.html');
+  </script>
+</head>
+<body class="mobile-app app-loading">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="mobile-header">
+    <div class="mobile-top">
+      <div class="mobile-top-left">
+        <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      </div>
+      <div class="mobile-top-center">
+        <div class="mobile-brand"><img src="../assets/logo.png" alt="logo" />내 프로필</div>
+      </div>
+      <div class="mobile-top-right mobile-actions">
+        <button class="btn tiny muted" id="logout-btn">로그아웃</button>
+      </div>
+    </div>
+    <div class="mobile-status-row">
+      <div class="mobile-status-line">
+        <div class="system-status-badge">
+          <div class="status-label">연결 상태</div>
+          <div class="system-status">
+            <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">서버 확인 중</span>
+            </span>
+            <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">DB 확인 중</span>
+            </span>
+          </div>
+          <div class="status-meta" id="status-meta">상태 체크 중...</div>
+        </div>
+        <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+          <span class="theme-icon">☀️</span>
+          <span id="theme-label">라이트 모드</span>
+        </button>
+        <span id="session-countdown" class="status-chip session-timer"></span>
+      </div>
+      <div class="mobile-session">
+        <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+        <span class="mobile-user">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</span>
+      </div>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">탐색</div>
+      <a class="nav-link" data-page="dashboard" href="dashboard.html">대시보드</a>
+      <a class="nav-link" data-page="overview" href="schedule_overview.html">근무 배정표</a>      <div class="nav-group">
+        <button class="nav-toggle" type="button" data-group="profile" data-page="profile" aria-expanded="false">
+          <span>내 프로필</span>
+          <span class="nav-plus">+</span>
+        </button>
+        <div class="nav-sub" data-group="profile">
+          <a class="nav-link" data-page="profile-info" href="member_profile.html">프로필 정보</a>
+      <a class="nav-link" data-page="profile-assignments" href="profile_assignments.html" data-roles="MASTER,MEMBER">내 배정 근무</a>
+      <a class="nav-link" data-page="profile-visible" href="profile_visible_users.html" data-roles="MASTER,OPERATOR">접근 가능한 계정 현황</a>
+      <a class="nav-link" data-page="profile-account" href="profile_account.html">정보 변경</a>
+      <a class="nav-link" data-page="profile-reset" href="profile_reset.html" data-roles="MASTER,OPERATOR">데이터 초기화</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <button class="nav-toggle" type="button" data-group="requests" data-page="requests" data-roles="MASTER,MEMBER" aria-expanded="false">
+          <span>근무 변경 신청</span>
+          <span class="nav-plus">+</span>
+        </button>
+        <div class="nav-sub" data-group="requests">
+          <a class="nav-link" data-page="request-form" data-roles="MASTER,MEMBER" href="request_center.html">결근/추가 근무 신청</a>
+      <a class="nav-link" data-page="request-status" data-roles="MASTER,MEMBER" href="request_status.html">내 신청 현황</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <button class="nav-toggle" type="button" data-group="approvals" data-page="approvals" data-roles="MASTER,OPERATOR" aria-expanded="false">
+          <span>변경 승인함</span>
+          <span class="nav-plus">+</span>
+        </button>
+        <div class="nav-sub" data-group="approvals">
+          <a class="nav-link" data-page="approvals-pending" data-roles="MASTER,OPERATOR" href="request_approvals.html">대기 중인 근무 변경 요청</a>
+      <a class="nav-link" data-page="approvals-recent" data-roles="MASTER,OPERATOR" href="approvals_recent.html">최근 요청 흐름</a>
+        </div>
+      </div>
+      <a class="nav-link" data-page="notices" href="notice_board.html">공지사항</a>
+      <a class="nav-link" data-page="notice_admin" data-min-role="OPERATOR" href="notice_admin.html">공지 관리</a>
+      <a class="nav-link" data-page="members" data-min-role="OPERATOR" href="admin_members.html">구성원 관리</a>
+      <a class="nav-link" data-page="shifts" data-min-role="OPERATOR" href="admin_shifts.html">근무 관리</a>
+      <a class="nav-link" data-page="history" data-min-role="MASTER" href="history.html">변동 이력</a>
+      <div class="nav-divider"></div>
+      <div class="nav-section-label">통계 센터</div>
+      <a class="nav-link" data-page="visitor-portal" href="visitor_dashboard.html">출입자 통계 바로가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="mobile-content">
+      <section class="card" id="profile-card">
+        <div class="card-title">프로필 정보</div>
+        <div class="profile-info-list">
+          <div class="profile-info-item">
+            <span class="profile-label">이름</span>
+            <span class="profile-value" id="profile-name"></span>
+          </div>
+          <div class="profile-info-item">
+            <span class="profile-label">권한</span>
+            <span class="profile-value" id="profile-role"></span>
+          </div>
+          <div class="profile-info-item">
+            <span class="profile-label">개인 ID</span>
+            <span class="profile-value" id="profile-identifier"></span>
+          </div>
+          <div class="profile-info-item">
+            <span class="profile-label">로그인 ID</span>
+            <span class="profile-value" id="profile-login"></span>
+          </div>
+          <div class="profile-info-item">
+            <span class="profile-label">상태</span>
+            <span class="profile-value" id="profile-active"></span>
+          </div>
+          <div class="profile-info-item">
+            <span class="profile-label">최근 로그인</span>
+            <span class="profile-value" id="profile-last-login"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { attachProfilePage } from '../js/profile.js';
+
+    const user = await initAppLayout('profile-info');
+    await attachProfilePage(user);
+  </script>
+</body>
+</html>

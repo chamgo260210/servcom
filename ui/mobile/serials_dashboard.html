@@ -1,0 +1,28 @@
+<!-- File: /ui/mobile/serials_dashboard.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>연속 간행물 센터 - 이동</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <script type="module">
+    import { redirectToDesktopIfNeeded } from '../js/mobile.js';
+    redirectToDesktopIfNeeded('../html/serials_home.html');
+  </script>
+  <script>
+    window.location.replace('serials_home.html');
+  </script>
+</head>
+<body class="mobile-app">
+  <main class="mobile-content">
+    <section class="card">
+      <div class="card-title">연속 간행물 센터</div>
+      <p>새로운 홈 화면으로 이동합니다. 이동되지 않는다면 <a href="serials_home.html">여기를 클릭</a>하세요.</p>
+    </section>
+  </main>
+</body>
+</html>

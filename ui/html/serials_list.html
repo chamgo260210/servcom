@@ -1,0 +1,160 @@
+<!-- File: /ui/html/serials_list.html -->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>연속 간행물 센터 - 조회</title>
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/serials.css" />
+  <script type="module">
+    import { redirectToMobileIfNeeded } from '../js/mobile.js';
+    redirectToMobileIfNeeded('../mobile/serials_list.html');
+  </script>
+</head>
+
+<body class="app-loading" data-home="dashboard.html">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="header">
+    <div class="header-left">
+      <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      <button class="logo serials-logo-button" id="serials-logo" type="button">
+        <img src="../assets/logo.png" width="32" alt="logo" /> 연속 간행물 센터
+      </button>
+    </div>
+    <div class="header-right">
+      <div class="system-status-badge inline" id="status-card">
+        <div class="status-label">연결 상태</div>
+        <div class="system-status">
+          <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">서버 확인 중</span>
+          </span>
+          <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">DB 확인 중</span>
+          </span>
+        </div>
+        <div class="status-meta" id="status-meta">상태 체크 중...</div>
+      </div>
+      <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+        <span class="theme-icon">☀️</span>
+        <span id="theme-label">라이트 모드</span>
+      </button>
+      <span id="session-countdown" class="status-chip session-timer"></span>
+      <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+      <div class="muted">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</div>
+      <button class="btn muted" id="logout-btn">로그아웃</button>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">연속 간행물</div>
+      <a class="nav-link" data-page="serials-home" href="serials_home.html">홈</a>
+      <a class="nav-link" data-page="serials-list" href="serials_list.html">조회 · 검색</a>
+      <a class="nav-link" data-page="serials-manage" data-min-role="OPERATOR" href="serials_manage.html">등록 · 수정</a>
+      <a class="nav-link" data-page="serials-layout" data-min-role="OPERATOR" href="serials_layout.html">배치도 · 서가 관리</a>
+      <div class="nav-divider"></div>
+      <a class="nav-link nav-secondary" href="dashboard.html" data-return-target="dashboard.html">근무 시스템 돌아가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="content">
+      <section class="card">
+        <div class="card-title">연속 간행물 검색</div>
+        <div class="serials-toolbar">
+          <div class="form-row">
+            <label for="search-keyword">서적명</label>
+            <input id="search-keyword" type="text" placeholder="예: 학보" />
+          </div>
+          <div class="form-row">
+            <label for="search-issn">ISSN</label>
+            <input id="search-issn" type="text" placeholder="예: 1234-5678" />
+          </div>
+          <div class="form-row">
+            <label for="search-shelf">배치서가</label>
+            <input id="search-shelf" type="text" placeholder="예: 정기간행물A" />
+          </div>
+          <div class="form-row">
+            <label for="search-type">분류</label>
+            <select id="search-type">
+              <option value="">전체</option>
+              <option value="UNCLASSIFIED">미분류</option>
+              <option value="DONATION">수증</option>
+              <option value="SUBSCRIPTION">구독</option>
+            </select>
+          </div>
+          <button class="btn" id="search-button">검색</button>
+          <button class="btn secondary" id="search-reset" type="button">초기화</button>
+        </div>
+      </section>
+
+      <!-- 목록 영역 (너비 맞춤, 높이 얇게) -->
+      <section class="card serials-list-card">
+        <div class="card-title">연속 간행물 목록</div>
+        <div class="muted" id="serials-status">불러오는 중...</div>
+        <div class="table-scroll compact">
+          <table class="table serials-table" id="serials-table">
+            <thead>
+              <tr>
+                <th>서적명</th>
+                <th>ISSN</th>
+                <th>분류</th>
+                <th>배치 위치</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 상세정보 영역 -->
+      <section class="card serials-detail-card">
+        <div class="card-title">상세정보</div>
+        <div class="detail-info-row">
+          <div class="detail-item"><span class="muted">서적명</span> <strong id="detail-title">-</strong></div>
+          <div class="detail-item"><span class="muted">ISSN</span> <strong id="detail-issn">-</strong></div>
+          <div class="detail-item"><span class="muted">분류</span> <strong id="detail-type">-</strong></div>
+          <div class="detail-item"><span class="muted">배치서가</span> <strong id="detail-shelf">-</strong></div>
+          <div class="detail-item"><span class="muted">위치</span> <strong id="detail-location">-</strong></div>
+          <div class="detail-item"><span class="muted">비고</span> <strong id="detail-note">-</strong></div>
+        </div>
+      </section>
+
+      <!-- 위치 시각화 영역 -->
+      <section class="card serials-visual-card">
+        <div class="visual-grid">
+          <!-- 평면도 (왼쪽 50%) -->
+          <div class="visual-panel">
+            <div class="panel-title">평면도 위치</div>
+            <div class="layout-canvas-wrapper" id="list-layout-canvas-wrapper">
+              <div class="layout-canvas" id="layout-canvas"></div>
+            </div>
+            <div class="layout-legend" id="layout-legend"></div>
+          </div>
+          <!-- 서가 시각화 (오른쪽 50%) -->
+          <div class="visual-panel">
+            <div class="panel-title">서가 내 위치</div>
+            <div class="shelf-visual" id="shelf-visual">
+              <div class="shelf-visual-empty">간행물을 선택하세요</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { initSerials } from '../js/serials.js';
+
+    await initAppLayout('serials-list');
+    initSerials();
+  </script>
+</body>
+
+</html>

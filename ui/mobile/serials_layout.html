@@ -1,0 +1,223 @@
+<!-- File: /ui/mobile/serials_layout.html -->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>연속 간행물 센터 - 배치도</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <link rel="stylesheet" href="../css/serials.css" />
+  <script type="module">
+    import { redirectToDesktopIfNeeded } from '../js/mobile.js';
+    redirectToDesktopIfNeeded('../html/serials_layout.html');
+  </script>
+</head>
+
+<body class="mobile-app app-loading" data-home="dashboard.html">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="mobile-header">
+    <div class="mobile-top">
+      <div class="mobile-top-left">
+        <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      </div>
+      <div class="mobile-top-center">
+        <button class="mobile-brand serials-mobile-logo-button" id="serials-logo" type="button">
+          <img src="../assets/logo.png" alt="logo" />연속 간행물
+        </button>
+      </div>
+      <div class="mobile-top-right mobile-actions">
+        <button class="btn tiny muted" id="logout-btn">로그아웃</button>
+      </div>
+    </div>
+    <div class="mobile-status-row">
+      <div class="mobile-status-line">
+        <div class="system-status-badge">
+          <div class="status-label">연결 상태</div>
+          <div class="system-status">
+            <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">서버 확인 중</span>
+            </span>
+            <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">DB 확인 중</span>
+            </span>
+          </div>
+          <div class="status-meta" id="status-meta">상태 체크 중...</div>
+        </div>
+        <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+          <span class="theme-icon">☀️</span>
+          <span id="theme-label">라이트 모드</span>
+        </button>
+        <span id="session-countdown" class="status-chip session-timer"></span>
+      </div>
+      <div class="mobile-session">
+        <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+        <span class="mobile-user">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</span>
+      </div>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">연속 간행물</div>
+      <a class="nav-link" data-page="serials-home" href="serials_home.html">홈</a>
+      <a class="nav-link" data-page="serials-list" href="serials_list.html">조회 · 검색</a>
+      <a class="nav-link" data-page="serials-manage" data-min-role="OPERATOR" href="serials_manage.html">등록 · 수정</a>
+      <a class="nav-link" data-page="serials-layout" data-min-role="OPERATOR" href="serials_layout.html">배치도 · 서가 관리</a>
+      <div class="nav-divider"></div>
+      <a class="nav-link nav-secondary" href="dashboard.html" data-return-target="dashboard.html">근무 시스템 돌아가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="mobile-content">
+      <section class="card">
+        <div class="card-title">평면도 설정</div>
+        <form class="inline-form serials-form" id="layout-form">
+          <div class="form-row">
+            <label for="layout-name">배치도 이름</label>
+            <input id="layout-name" type="text" placeholder="예: 자료실 1층" />
+          </div>
+          <div class="form-row">
+            <label for="layout-width">가로(px)</label>
+            <input id="layout-width" type="number" min="200" placeholder="800" />
+          </div>
+          <div class="form-row">
+            <label for="layout-height">세로(px)</label>
+            <input id="layout-height" type="number" min="200" placeholder="500" />
+          </div>
+          <div class="form-row">
+            <label for="layout-note">메모</label>
+            <input id="layout-note" type="text" placeholder="설명" />
+          </div>
+          <div class="form-row">
+            <label aria-hidden="true">동작</label>
+            <div class="stack tight">
+              <button class="btn" type="submit">배치도 저장</button>
+              <button class="btn secondary" id="layout-reset" type="button">새 배치도</button>
+            </div>
+          </div>
+        </form>
+        <div class="layout-toolbar">
+          <label for="layout-select" class="muted">배치도 선택</label>
+          <select id="layout-select"></select>
+        </div>
+        <div class="layout-canvas" id="layout-canvas"></div>
+        <div class="layout-legend" id="layout-legend"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">서가 타입 관리</div>
+        <form class="inline-form serials-form" id="shelf-type-form">
+          <div class="form-row">
+            <label for="shelf-type-name">서가 타입명</label>
+            <input id="shelf-type-name" type="text" placeholder="예: 서가-표준" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-type-width">가로(px)</label>
+            <input id="shelf-type-width" type="number" min="20" placeholder="80" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-type-height">세로(px)</label>
+            <input id="shelf-type-height" type="number" min="20" placeholder="40" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-type-rows">행</label>
+            <input id="shelf-type-rows" type="number" min="1" placeholder="5" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-type-columns">열</label>
+            <input id="shelf-type-columns" type="number" min="1" placeholder="5" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-type-note">메모</label>
+            <input id="shelf-type-note" type="text" placeholder="설명" />
+          </div>
+          <div class="form-row">
+            <label aria-hidden="true">동작</label>
+            <div class="stack tight">
+              <button class="btn" type="submit">서가 타입 저장</button>
+              <button class="btn secondary" id="shelf-type-reset" type="button">새 타입</button>
+            </div>
+          </div>
+        </form>
+        <div class="table-scroll">
+          <table class="table serials-table" id="shelf-type-table">
+            <thead>
+              <tr>
+                <th>타입</th>
+                <th>크기</th>
+                <th>행×열</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">서가 배치</div>
+        <form class="inline-form serials-form" id="shelf-form">
+          <div class="form-row">
+            <label for="shelf-code">서가 명칭</label>
+            <input id="shelf-code" type="text" placeholder="예: A-1" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-type-select">서가 타입</label>
+            <select id="shelf-type-select"></select>
+          </div>
+          <div class="form-row">
+            <label for="shelf-x">X 좌표</label>
+            <input id="shelf-x" type="number" placeholder="0" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-y">Y 좌표</label>
+            <input id="shelf-y" type="number" placeholder="0" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-rotation">회전(도)</label>
+            <input id="shelf-rotation" type="number" placeholder="0" />
+          </div>
+          <div class="form-row">
+            <label for="shelf-note">메모</label>
+            <input id="shelf-note" type="text" placeholder="설명" />
+          </div>
+          <div class="form-row">
+            <label aria-hidden="true">동작</label>
+            <div class="stack tight">
+              <button class="btn" type="submit">서가 저장</button>
+              <button class="btn secondary" id="shelf-reset" type="button">새 서가</button>
+              <button class="btn danger" id="shelf-delete" type="button">서가 삭제</button>
+            </div>
+          </div>
+        </form>
+        <div class="table-scroll">
+          <table class="table serials-table" id="shelf-table">
+            <thead>
+              <tr>
+                <th>서가</th>
+                <th>타입</th>
+                <th>위치</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { initSerials } from '../js/serials.js';
+
+    await initAppLayout('serials-layout');
+    initSerials();
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,181 @@
+<!-- File: /ui/mobile/visitor_bulk_entry.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>일괄 입력 - 출입자 통계 센터</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <link rel="stylesheet" href="../css/visitor.css" />
+  <script type="module">
+    import { redirectToDesktopIfNeeded } from '../js/mobile.js';
+    redirectToDesktopIfNeeded('../html/visitor_bulk_entry.html');
+  </script>
+</head>
+<body class="mobile-app app-loading visitor-portal" data-home="visitor_dashboard.html">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="mobile-header">
+    <div class="mobile-top">
+      <div class="mobile-top-left">
+        <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      </div>
+      <div class="mobile-top-center">
+        <div class="mobile-brand"><img src="../assets/logo.png" alt="logo" />통계 센터</div>
+      </div>
+      <div class="mobile-top-right mobile-actions">
+        <button class="btn tiny muted" id="logout-btn">로그아웃</button>
+      </div>
+    </div>
+    <div class="mobile-status-row">
+      <div class="mobile-status-line">
+        <div class="system-status-badge">
+          <div class="status-label">연결 상태</div>
+          <div class="system-status">
+            <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">서버 확인 중</span>
+            </span>
+            <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">DB 확인 중</span>
+            </span>
+          </div>
+          <div class="status-meta" id="status-meta">상태 체크 중...</div>
+        </div>
+        <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+          <span class="theme-icon">☀️</span>
+          <span id="theme-label">라이트 모드</span>
+        </button>
+        <span id="session-countdown" class="status-chip session-timer"></span>
+      </div>
+      <div class="mobile-session">
+        <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+        <span class="mobile-user">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</span>
+      </div>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">출입자 통계</div>
+      <a class="nav-link" data-page="visitor-dashboard" href="visitor_dashboard.html">월간 대시보드</a>
+      <a class="nav-link" data-page="visitor-entry" href="visitor_entry.html">일일 입력</a>
+      <a class="nav-link" data-page="visitor-bulk-entry" data-min-role="OPERATOR" href="visitor_bulk_entry.html">일괄 입력</a>
+      <a class="nav-link" data-page="visitor-summary" href="visitor_summary.html">통계 리포트</a>
+      <a class="nav-link" data-page="visitor-settings" data-min-role="OPERATOR" href="visitor_settings.html">학년도 · 설정</a>
+      <div class="nav-divider"></div>
+      <a class="nav-link nav-secondary" href="dashboard.html" data-return-target="dashboard.html">근무 시스템 돌아가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="mobile-content">
+      <section class="card visitor-year-bar">
+        <div class="card-title">학년도 선택</div>
+        <div class="inline-form">
+          <div class="form-row">
+            <label for="year-select">학년도</label>
+            <select id="year-select"></select>
+          </div>
+        </div>
+        <div class="helper-grid" id="year-summary">
+          <div class="helper-item">
+            <div class="muted">학년도</div>
+            <strong id="year-academic">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">기간</div>
+            <strong id="year-range">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">학년도 명칭</div>
+            <strong id="year-label">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="bulk-entry">
+        <div class="card-title">일괄 입력</div>
+        <div id="bulk-entry-hint" class="muted">과거 날짜의 일일 방문자 수만 입력할 수 있습니다.</div>
+        <div id="bulk-entry-message" class="form-message" role="alert" aria-live="polite"></div>
+        <div class="inline-form">
+          <div class="form-row">
+            <label for="bulk-visit-date">날짜</label>
+            <input id="bulk-visit-date" type="date" />
+          </div>
+          <div class="form-row">
+            <label for="bulk-daily-visitors">금일 출입자</label>
+            <input id="bulk-daily-visitors" type="number" min="0" placeholder="일일 방문자 수" />
+          </div>
+          <button class="btn" id="save-bulk-entry">기록 저장</button>
+          <button class="btn secondary" id="reset-bulk-entry">초기화</button>
+          <button class="btn danger" id="delete-bulk-entry" style="display:none;">기록 삭제</button>
+        </div>
+        <div class="bulk-entry-month">
+          <div class="muted">월간 입력: 평일 날짜만 표시되며 방문자 수만 입력합니다. 오늘 날짜는 제외됩니다.</div>
+          <div class="inline-form">
+            <div class="form-row">
+              <label for="bulk-month">월 선택</label>
+              <input id="bulk-month" type="month" />
+            </div>
+            <button class="btn secondary" id="bulk-month-load">월 불러오기</button>
+            <button class="btn" id="save-bulk-month">월간 저장</button>
+          </div>
+          <div class="table-scroll">
+            <table class="table" id="bulk-month-table">
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>일일 방문자</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="helper-grid" id="bulk-entry-preview">
+          <div class="helper-item">
+            <div class="muted">금일 출입자</div>
+            <strong id="bulk-preview-daily">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">최근 수정자</div>
+            <strong id="bulk-preview-updater">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">일일 기록</div>
+        <div class="entry-month-header">
+          <button class="btn tiny secondary" id="entry-month-prev">이전 달</button>
+          <div class="entry-month-label" id="entry-month-label">-</div>
+          <button class="btn tiny secondary" id="entry-month-next">다음 달</button>
+        </div>
+        <div class="muted" id="entry-status">불러오는 중...</div>
+        <table class="table" id="entry-table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>금일 출입자</th>
+              <th>수정자</th>
+              <th>수정 시각</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { initVisitorStats } from '../js/visitors.js';
+
+    await initAppLayout('visitor-bulk-entry');
+    initVisitorStats();
+  </script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!-- File: /ui/html/member_profile.html -->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>내 프로필</title>
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <script type="module">
+    import { redirectToMobileIfNeeded } from '../js/mobile.js';
+    redirectToMobileIfNeeded('../mobile/member_profile.html');
+  </script>
+</head>
+
+<body class="app-loading">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="header">
+    <div class="header-left">
+      <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      <div class="logo"><img src="../assets/logo.png" width="32" alt="logo" /> 내 프로필</div>
+    </div>
+    <div class="header-right">
+      <div class="system-status-badge inline" id="status-card">
+        <div class="status-label">연결 상태</div>
+        <div class="system-status">
+          <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">서버 확인 중</span>
+          </span>
+          <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+            <span class="status-dot"></span>
+            <span class="status-text">DB 확인 중</span>
+          </span>
+        </div>
+        <div class="status-meta" id="status-meta">상태 체크 중...</div>
+      </div>
+      <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+        <span class="theme-icon">☀️</span>
+        <span id="theme-label">라이트 모드</span>
+      </button>
+      <span id="session-countdown" class="status-chip session-timer"></span>
+      <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+      <div class="muted">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</div>
+      <button class="btn muted" id="logout-btn">로그아웃</button>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">탐색</div>
+      <a class="nav-link" data-page="dashboard" href="dashboard.html">대시보드</a>
+      <a class="nav-link" data-page="overview" href="schedule_overview.html">근무 배정표</a>
+      <a class="nav-link" data-page="profile" href="member_profile.html">내 프로필</a>
+      <a class="nav-link" data-page="requests" data-roles="MASTER,MEMBER" href="request_center.html">근무 변경 신청</a>
+      <a class="nav-link" data-page="approvals" data-roles="MASTER,OPERATOR" href="request_approvals.html">변경 승인함</a>
+      <a class="nav-link" data-page="notices" href="notice_board.html">공지사항</a>
+      <a class="nav-link" data-page="notice_admin" data-min-role="OPERATOR" href="notice_admin.html">공지 관리</a>
+      <a class="nav-link" data-page="members" data-min-role="OPERATOR" href="admin_members.html">구성원 관리</a>
+      <a class="nav-link" data-page="shifts" data-min-role="OPERATOR" href="admin_shifts.html">근무 관리</a>
+      <a class="nav-link" data-page="history" data-min-role="MASTER" href="history.html">변동 이력</a>
+      <div class="nav-divider"></div>
+      <div class="nav-section-label">통계 센터</div>
+      <a class="nav-link" data-page="visitor-portal" href="visitor_dashboard.html">출입자 통계 바로가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="content">
+      <div class="profile-layout">
+        <div class="profile-column">
+          <div class="card" id="profile-card">
+            <div class="card-title">프로필 정보</div>
+            <table class="table compact">
+              <tbody>
+                <tr>
+                  <th>이름</th>
+                  <td id="profile-name"></td>
+                </tr>
+                <tr>
+                  <th>권한</th>
+                  <td id="profile-role"></td>
+                </tr>
+                <tr>
+                  <th>개인 ID</th>
+                  <td id="profile-identifier"></td>
+                </tr>
+                <tr>
+                  <th>로그인 ID</th>
+                  <td id="profile-login"></td>
+                </tr>
+                <tr>
+                  <th>상태</th>
+                  <td id="profile-active"></td>
+                </tr>
+                <tr>
+                  <th>최근 로그인</th>
+                  <td id="profile-last-login"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card" id="visible-users-card">
+            <div class="card-title">접근 가능한 계정 현황</div>
+            <div class="table-wrap">
+              <table class="table table-compact table-wide" id="visible-users">
+                <thead>
+                  <tr>
+                    <th>이름</th>
+                    <th>권한</th>
+                    <th>개인 ID</th>
+                    <th>로그인 ID</th>
+                    <th>상태</th>
+                  </tr>
+                </thead>
+                <tbody id="visible-users-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card" id="assignments-card">
+            <div class="card-title">내 배정 근무</div>
+            <ul id="my-schedule"></ul>
+          </div>
+        </div>
+        <div class="profile-column profile-side">
+          <div class="card" id="account-card">
+            <div class="card-title">정보 변경</div>
+            <form id="account-form" class="stack">
+              <div class="input-with-toggle">
+                <input id="current-password" type="password" placeholder="현재 비밀번호" required />
+                <button type="button" class="toggle-visibility" id="toggle-current">◎</button>
+              </div>
+              <input id="new-login" type="text" placeholder="새 로그인 ID (선택)" />
+              <div class="input-with-toggle">
+                <input id="new-password" type="password" placeholder="새 비밀번호 (선택, 8자 이상)" />
+                <button type="button" class="toggle-visibility" id="toggle-new">◎</button>
+              </div>
+              <div class="input-with-toggle">
+                <input id="confirm-password" type="password" placeholder="새 비밀번호 확인" />
+                <button type="button" class="toggle-visibility" id="toggle-confirm">◎</button>
+              </div>
+              <div class="alert muted small" id="account-warning">비밀번호는 8자 이상, 영문/숫자 조합 권장 · 로그인 ID 중복 불가</div>
+              <div class="muted small">로그인 ID나 비밀번호 중 변경할 항목만 입력하세요.</div>
+              <button class="btn" type="submit">계정 정보 업데이트</button>
+            </form>
+          </div>
+          <div class="card" id="reset-card">
+            <div class="card-title">데이터 초기화</div>
+            <p class="muted">권한에 따라 선택지가 다르게 보입니다. 데이터만 초기화하며 스키마는 유지합니다.</p>
+            <div class="stack">
+              <button class="btn secondary" data-reset-scope="members">구성원 DB 초기화</button>
+              <button class="btn secondary" data-reset-scope="operators_members">운영자+구성원 DB 초기화</button>
+              <button class="btn danger" data-reset-scope="all">전체 초기화 (마스터 계정 재생성)</button>
+            </div>
+            <div id="reset-result" class="muted small"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script type="module">
+    import { initAppLayout } from '../js/layout.js';
+    import { loadMySchedule } from '../js/schedule.js';
+    import { attachProfilePage } from '../js/profile.js';
+
+    const user = await initAppLayout('profile');
+    await attachProfilePage(user);
+    if (user?.role !== 'OPERATOR') {
+      await loadMySchedule(user);
+    }
+  </script>
+</body>
+
+</html>

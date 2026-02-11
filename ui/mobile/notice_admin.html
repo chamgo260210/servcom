@@ -1,0 +1,192 @@
+<!-- File: /ui/mobile/notice_admin.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>공지 관리 - 모바일</title>
+  <link rel="stylesheet" href="../css/base.css" />
+  <link rel="stylesheet" href="../css/layout.css" />
+  <link rel="stylesheet" href="../css/components.css" />
+  <link rel="stylesheet" href="../css/mobile.css" />
+  <script type="module">
+    import { redirectToDesktopIfNeeded } from '../js/mobile.js';
+    redirectToDesktopIfNeeded('../html/notice_admin.html');
+  </script>
+</head>
+<body class="mobile-app app-loading">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="mobile-header">
+    <div class="mobile-top">
+      <div class="mobile-top-left">
+        <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      </div>
+      <div class="mobile-top-center">
+        <div class="mobile-brand"><img src="../assets/logo.png" alt="logo" />공지 관리</div>
+      </div>
+      <div class="mobile-top-right mobile-actions">
+        <button class="btn tiny muted" id="logout-btn">로그아웃</button>
+      </div>
+    </div>
+    <div class="mobile-status-row">
+      <div class="mobile-status-line">
+        <div class="system-status-badge">
+          <div class="status-label">연결 상태</div>
+          <div class="system-status">
+            <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">서버 확인 중</span>
+            </span>
+            <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+              <span class="status-dot"></span>
+              <span class="status-text">DB 확인 중</span>
+            </span>
+          </div>
+          <div class="status-meta" id="status-meta">상태 체크 중...</div>
+        </div>
+        <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+          <span class="theme-icon">☀️</span>
+          <span id="theme-label">라이트 모드</span>
+        </button>
+        <span id="session-countdown" class="status-chip session-timer"></span>
+      </div>
+      <div class="mobile-session">
+        <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+        <span class="mobile-user">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</span>
+      </div>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">탐색</div>
+      <a class="nav-link" data-page="dashboard" href="dashboard.html">대시보드</a>
+      <a class="nav-link" data-page="overview" href="schedule_overview.html">근무 배정표</a>      <div class="nav-group">
+        <button class="nav-toggle" type="button" data-group="profile" data-page="profile" aria-expanded="false">
+          <span>내 프로필</span>
+          <span class="nav-plus">+</span>
+        </button>
+        <div class="nav-sub" data-group="profile">
+          <a class="nav-link" data-page="profile-info" href="member_profile.html">프로필 정보</a>
+      <a class="nav-link" data-page="profile-assignments" href="profile_assignments.html" data-roles="MASTER,MEMBER">내 배정 근무</a>
+      <a class="nav-link" data-page="profile-visible" href="profile_visible_users.html" data-roles="MASTER,OPERATOR">접근 가능한 계정 현황</a>
+      <a class="nav-link" data-page="profile-account" href="profile_account.html">정보 변경</a>
+      <a class="nav-link" data-page="profile-reset" href="profile_reset.html" data-roles="MASTER,OPERATOR">데이터 초기화</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <button class="nav-toggle" type="button" data-group="requests" data-page="requests" data-roles="MASTER,MEMBER" aria-expanded="false">
+          <span>근무 변경 신청</span>
+          <span class="nav-plus">+</span>
+        </button>
+        <div class="nav-sub" data-group="requests">
+          <a class="nav-link" data-page="request-form" data-roles="MASTER,MEMBER" href="request_center.html">결근/추가 근무 신청</a>
+      <a class="nav-link" data-page="request-status" data-roles="MASTER,MEMBER" href="request_status.html">내 신청 현황</a>
+        </div>
+      </div>
+      <div class="nav-group">
+        <button class="nav-toggle" type="button" data-group="approvals" data-page="approvals" data-roles="MASTER,OPERATOR" aria-expanded="false">
+          <span>변경 승인함</span>
+          <span class="nav-plus">+</span>
+        </button>
+        <div class="nav-sub" data-group="approvals">
+          <a class="nav-link" data-page="approvals-pending" data-roles="MASTER,OPERATOR" href="request_approvals.html">대기 중인 근무 변경 요청</a>
+      <a class="nav-link" data-page="approvals-recent" data-roles="MASTER,OPERATOR" href="approvals_recent.html">최근 요청 흐름</a>
+        </div>
+      </div>
+      <a class="nav-link" data-page="notices" href="notice_board.html">공지사항</a>
+      <a class="nav-link" data-page="notice_admin" data-min-role="OPERATOR" href="notice_admin.html">공지 관리</a>
+      <a class="nav-link" data-page="members" data-min-role="OPERATOR" href="admin_members.html">구성원 관리</a>
+      <a class="nav-link" data-page="shifts" data-min-role="OPERATOR" href="admin_shifts.html">근무 관리</a>
+      <a class="nav-link" data-page="history" data-min-role="MASTER" href="history.html">변동 이력</a>
+      <div class="nav-divider"></div>
+      <div class="nav-section-label">통계 센터</div>
+      <a class="nav-link" data-page="visitor-portal" href="visitor_dashboard.html">출입자 통계 바로가기</a>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="mobile-content">
+      <section class="card">
+        <div class="card-title">공지 등록/수정</div>
+        <form id="notice-form" class="form notice-form">
+          <div class="form-section">
+            <div class="section-header">
+              <h4>기본 정보</h4>
+              <p class="muted small">공지 제목과 내용을 작성하고, 공지 유형을 선택하세요.</p>
+            </div>
+            <label>제목
+              <input type="text" name="title" required placeholder="예: DB 교체 안내" />
+            </label>
+            <label>내용
+              <textarea name="body" rows="5" required placeholder="공지 내용을 입력하세요."></textarea>
+            </label>
+            <label>공지 유형
+              <select name="type" required>
+                <option value="DB_MAINTENANCE">DB 점검</option>
+                <option value="SYSTEM_MAINTENANCE">시스템 점검</option>
+                <option value="WORK_SPECIAL">근무 특별 공지</option>
+                <option value="GENERAL">일반 공지</option>
+              </select>
+              <span class="field-help">권한에 따라 선택 가능한 유형이 제한됩니다.</span>
+            </label>
+            <label>노출 채널
+              <div class="channel-toggle">
+                <label class="inline"><input type="checkbox" name="channels" value="popup" /> 팝업</label>
+                <label class="inline"><input type="checkbox" name="channels" value="banner" /> 배너</label>
+              </div>
+              <span class="field-help">게시판에는 항상 등록됩니다. 팝업/배너를 선택하면 추가 노출됩니다.</span>
+            </label>
+          </div>
+          <div class="form-section">
+            <div class="section-header">
+              <h4>대상 설정</h4>
+              <p class="muted small">공지 대상과 우선순위를 선택하세요.</p>
+            </div>
+            <label>대상 범위
+              <select name="scope" id="notice-scope">
+                <option value="ALL">전체</option>
+                <option value="ROLE">역할별</option>
+                <option value="USER">개별 사용자</option>
+              </select>
+              <span class="field-help">역할별/개별 사용자 선택 시 아래 목록이 활성화됩니다.</span>
+            </label>
+            <label>우선순위
+              <input type="number" name="priority" value="0" min="0" />
+              <span class="field-help">숫자가 높을수록 먼저 노출됩니다.</span>
+            </label>
+            <div id="notice-role-targets" class="notice-targets notice-targets--roles"></div>
+            <div id="notice-user-targets" class="notice-targets notice-targets--users"></div>
+          </div>
+          <div class="form-section">
+            <div class="section-header">
+              <h4>노출 기간</h4>
+              <p class="muted small">시작/종료 시간을 지정하지 않으면 즉시 노출됩니다.</p>
+            </div>
+            <label>시작 시각
+              <input type="datetime-local" name="start_at" />
+            </label>
+            <label>종료 시각
+              <input type="datetime-local" name="end_at" />
+            </label>
+            <label class="inline">
+              <input type="checkbox" name="is_active" checked /> 활성화
+              <span class="field-help">비활성화하면 노출되지 않습니다.</span>
+            </label>
+          </div>
+          <div class="mobile-action-bar">
+            <button class="btn" id="notice-submit" type="submit">공지 등록</button>
+            <button class="btn secondary" id="notice-cancel-edit" type="button" style="display:none;">편집 취소</button>
+          </div>
+        </form>
+      </section>
+      <section class="card">
+        <div class="card-title">공지 목록</div>
+        <div id="notice-admin-empty" class="muted" style="display:none;">등록된 공지가 없습니다.</div>
+        <div id="notice-admin-list" class="notice-admin-list"></div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="../js/notice_admin.js"></script>
+</body>
+</html>

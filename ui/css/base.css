@@ -1,0 +1,87 @@
+/* File: /ui/css/base.css */
+:root {
+  --bg: #f7f9fc;
+  --primary: #2b6cb0;
+  --accent: #38b2ac;
+  --text: #1a202c;
+  --muted: #718096;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --header-height: 72px;
+  --content-max-width: 1200px;
+  --content-gutter: clamp(16px, 3vw, 28px);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+a { color: var(--primary); text-decoration: none; }
+button, input, select {
+  font: inherit;
+}
+.btn {
+  background: var(--primary);
+  color: white;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.btn.secondary { background: var(--accent); }
+.btn.muted { background: var(--muted); color: #f8fafc; }
+.btn.danger { background: #e53e3e; }
+.btn.tiny { padding: 6px 10px; font-size: 12px; }
+.btn.loading { opacity: 0.7; cursor: wait; }
+.btn:disabled { opacity: 0.7; cursor: not-allowed; }
+input, select, textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  background: var(--card);
+  color: var(--text);
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.04);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th, .table td {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+}
+.badge { padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.badge.pending { background: #f6ad55; color: #7b341e; }
+.badge.approved { background: #9ae6b4; color: #22543d; }
+.badge.rejected { background: #feb2b2; color: #742a2a; }
+.badge.cancelled { background: #cbd5e1; color: #334155; }
+.stack { display: flex; flex-direction: column; gap: 8px; }
+.small { font-size: 12px; }
+.loading-text { color: var(--muted); font-size: 13px; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --primary: #60a5fa;
+  --accent: #2dd4bf;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --card: #111827;
+  --border: #1f2937;
+}
+
+:root[data-theme="dark"] ::placeholder {
+  color: #64748b;
+}

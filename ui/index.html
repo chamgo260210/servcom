@@ -1,0 +1,63 @@
+<!-- File: /ui/html/index.html -->
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>다산 근무 관리자 - 로그인</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <script type="module">
+    import { redirectToMobileIfNeeded } from './js/mobile.js';
+    redirectToMobileIfNeeded('./mobile/index.html');
+  </script>
+</head>
+
+<body class="login-body">
+  <div class="login-shell">
+    <div class="card login-card">
+      <div class="logo login-logo"><img src="assets/logo.png" width="40" height="40" alt="logo" />다산 근무 관리자</div>
+      <form id="login-form" class="login-form">
+        <label for="login_id">로그인 ID</label>
+        <input id="login_id" required />
+        <label for="password">비밀번호</label>
+        <div class="input-with-toggle">
+          <input id="password" type="password" required />
+          <button type="button" class="toggle-visibility" id="toggle-login-password">◎</button>
+        </div>
+        <div class="loading-bar" id="login-loading"></div>
+        <button class="btn full" type="submit">로그인</button>
+        <div class="login-status">
+          <span id="login-progress" class="muted">로그인 정보를 입력하세요</span>
+          <button class="btn tiny secondary" type="button" id="login-retry">연결 다시 확인</button>
+          <div class="system-status-badge" id="system-status-card">
+            <div class="status-label">서버 · DB 연결 상태</div>
+            <div class="system-status">
+              <span id="server-status" class="status-chip status-pending" title="서버 상태 확인 중">
+                <span class="status-dot"></span>
+                <span class="status-text">서버 확인 중</span>
+              </span>
+              <span id="db-status" class="status-chip status-pending" title="DB 상태 확인 중">
+                <span class="status-dot"></span>
+                <span class="status-text">DB 확인 중</span>
+              </span>
+            </div>
+            <div class="status-meta" id="status-meta">상태 체크 중...</div>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script type="module">
+    import { login, setupPasswordToggle } from './js/auth.js';
+    import { initLoginShell } from './js/layout.js';
+
+    await initLoginShell();
+    setupPasswordToggle('password', 'toggle-login-password');
+    document.getElementById('login-form').addEventListener('submit', login);
+  </script>
+</body>
+
+</html>
