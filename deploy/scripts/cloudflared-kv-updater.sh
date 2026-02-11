@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-02-11-rgless-v2"
+SCRIPT_VERSION="2026-02-11-url-detect-v3"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
 # Optional:
-#   TUNNEL_HOST_FILTER=trycloudflare.com
+#   TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
 #   KV_KEY=active_url
 #   SKIP_KV_UPDATE=true            # run tunnel only without KV write
 
@@ -14,7 +14,7 @@ LOG_DIR=${LOG_DIR:-/var/log/work-time}
 mkdir -p "$LOG_DIR"
 CLOUDFLARED_LOG="$LOG_DIR/cloudflared.log"
 
-TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com}
+TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com,cfargotunnel.com}
 KV_KEY=${KV_KEY:-active_url}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 
@@ -41,11 +41,40 @@ cleanup() {
 trap cleanup EXIT
 
 extract_url() {
-  local pattern="https://[a-zA-Z0-9.-]+\.${TUNNEL_HOST_FILTER}"
-  grep -Eo "$pattern" "$CLOUDFLARED_LOG" | tail -n1 || true
+  local suffixes=()
+  IFS=',' read -r -a suffixes <<< "${TUNNEL_HOST_FILTER}"
+
+  local candidates
+  candidates=$(grep -Eo 'https://[A-Za-z0-9.-]+' "$CLOUDFLARED_LOG" | awk '!seen[$0]++' || true)
+
+  local matched=""
+  while IFS= read -r u; do
+    [[ -n "$u" ]] || continue
+    local host="${u#https://}"
+    for suffix in "${suffixes[@]}"; do
+      suffix="${suffix## }"
+      suffix="${suffix%% }"
+      [[ -n "$suffix" ]] || continue
+      if [[ "$host" == *"$suffix" ]]; then
+        matched="$u"
+      fi
+    done
+  done <<< "$candidates"
+
+  if [[ -n "$matched" ]]; then
+    echo "$matched"
+    return 0
+  fi
+
+  # Fallback: if host filter is wrong but tunnel URL exists, pick last HTTPS candidate.
+  echo "$candidates" | tail -n1 || true
 }
 
-for _ in $(seq 1 60); do
+for _ in $(seq 1 90); do
+  if ! kill -0 "$CF_PID" >/dev/null 2>&1; then
+    echo "[ERROR] cloudflared process exited before URL discovery" >&2
+    break
+  fi
   URL=$(extract_url)
   if [[ -n "${URL}" ]]; then
     break
@@ -54,8 +83,9 @@ for _ in $(seq 1 60); do
 done
 
 if [[ -z "${URL:-}" ]]; then
-  echo "[ERROR] Failed to parse trycloudflare URL from $CLOUDFLARED_LOG" >&2
-  echo "[HINT] Check cloudflared log: tail -n 100 $CLOUDFLARED_LOG" >&2
+  echo "[ERROR] Failed to discover tunnel URL from $CLOUDFLARED_LOG" >&2
+  echo "[HINT] Check cloudflared log: tail -n 120 $CLOUDFLARED_LOG" >&2
+  tail -n 40 "$CLOUDFLARED_LOG" >&2 || true
   exit 1
 fi
 

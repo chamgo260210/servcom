@@ -294,7 +294,7 @@ CF_ACCOUNT_ID=<Cloudflare_Account_ID>
 CF_API_TOKEN=<KV쓰기권한_API_Token>
 CF_KV_NAMESPACE_ID=<KV_Namespace_ID>
 KV_KEY=active_url
-TUNNEL_HOST_FILTER=trycloudflare.com
+TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
 LOG_DIR=/var/log/work-time
 # true면 KV 업데이트 없이 터널만 실행(디버깅용)
 SKIP_KV_UPDATE=false
@@ -574,7 +574,7 @@ journalctl -u work-time-cloudflared -n 100 --no-pager
 ## 14-6. 현재 발생한 오류(`rg: command not found`) 해결
 
 이 오류는 서버에 `ripgrep(rg)`가 없을 때 발생할 수 있습니다.
-최신 스크립트는 `rg`가 없으면 자동으로 `grep -Eo`를 사용하도록 보강되어 있습니다.
+최신 스크립트는 `rg`가 전혀 없어도 동작하며, 로그에서 URL을 `grep` 기반으로 파싱합니다.
 
 ```bash
 cd /srv/app
@@ -582,7 +582,7 @@ git pull
 sudo cp /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
 sudo chmod +x /srv/app/scripts/cloudflared-kv-updater.sh
 
-# 배포된 스크립트 버전 확인 (반드시 rgless-v2 보여야 함)
+# 배포된 스크립트 버전 확인 (반드시 url-detect-v3 보여야 함)
 grep -n 'SCRIPT_VERSION' /srv/app/scripts/cloudflared-kv-updater.sh
 
 # systemd가 실제 어떤 파일을 실행하는지 확인
@@ -593,10 +593,11 @@ sudo systemctl reset-failed work-time-cloudflared.service
 sudo systemctl restart work-time-cloudflared.service
 
 journalctl -u work-time-cloudflared -n 120 --no-pager
+sudo tail -n 120 /var/log/work-time/cloudflared.log
 curl -fsS https://<worker-url>/_edge/status
 ```
 
-로그에 `version=2026-02-11-rgless-v2`가 보여야 최신 스크립트가 실제로 실행된 것입니다.
+로그에 `version=2026-02-11-url-detect-v3`가 보여야 최신 스크립트가 실제로 실행된 것입니다.
 `/_edge/status`에서 `has_active_url=true`가 나오면 Worker 리다이렉트가 정상 동작합니다.
 
 ---
