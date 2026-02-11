@@ -266,6 +266,7 @@ psql "$DATABASE_URL" -c "\dt"
 ```bash
 cd /srv/app
 cp deploy/.env.server.example .env
+# 기본 권장: 소유자만 읽기/쓰기
 chmod 600 .env
 ```
 
@@ -376,6 +377,43 @@ sudo cp /srv/app/deploy/systemd/work-time-api.service /etc/systemd/system/work-t
 sudo systemctl daemon-reload
 sudo systemctl restart work-time-api.service
 
+systemctl status work-time-api --no-pager
+journalctl -u work-time-api -n 100 --no-pager
+curl -fsS http://127.0.0.1:8000/health
+curl -i http://127.0.0.1:8080/health
+```
+
+## 12-4. 현재 발생한 오류(`PermissionError: /srv/app/.env`) 해결
+
+로그에 아래 메시지가 보이면 `.env` 파일 읽기 권한 이슈입니다.
+
+- `PermissionError: [Errno 13] Permission denied: '/srv/app/.env'`
+
+원인
+- 서비스는 `www-data` 사용자로 실행되는데, `.env`가 너무 제한적으로 설정되면(`600` + 타 사용자 소유) 앱에서 직접 `.env`를 읽을 때 실패할 수 있습니다.
+
+현재 코드에서는 **읽을 수 없는 `.env`를 무시**하도록 보강했습니다.
+또한 systemd `EnvironmentFile=/srv/app/.env`는 root가 읽어 환경변수 주입을 수행하므로, 런타임에 앱이 `.env`를 직접 못 읽어도 동작 가능합니다.
+
+권한을 명시적으로 정리하려면 아래 중 하나를 사용하세요.
+
+```bash
+# 방법 A) root 소유 + www-data 그룹 읽기 허용
+sudo chown root:www-data /srv/app/.env
+sudo chmod 640 /srv/app/.env
+
+# 방법 B) 서비스 실행 사용자로 소유권 부여(운영정책에 맞게 선택)
+sudo chown www-data:www-data /srv/app/.env
+sudo chmod 600 /srv/app/.env
+
+# 반영
+sudo systemctl daemon-reload
+sudo systemctl restart work-time-api.service
+```
+
+검증:
+
+```bash
 systemctl status work-time-api --no-pager
 journalctl -u work-time-api -n 100 --no-pager
 curl -fsS http://127.0.0.1:8000/health

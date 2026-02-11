@@ -2,9 +2,25 @@
 import os
 from functools import lru_cache
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv()
+
+def _safe_load_dotenv() -> None:
+    """Load .env only when a readable file is found.
+
+    In production, systemd EnvironmentFile can inject env vars already; in that case
+    unreadable .env files should not crash app startup.
+    """
+
+    dotenv_path = find_dotenv(usecwd=True)
+    if not dotenv_path:
+        return
+    if not os.access(dotenv_path, os.R_OK):
+        return
+    load_dotenv(dotenv_path=dotenv_path)
+
+
+_safe_load_dotenv()
 
 
 class Settings:
