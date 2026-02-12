@@ -16,6 +16,20 @@
 
 ---
 
+
+## 0-1. 신규 VM에서 첫 로그인까지 초압축 순서
+
+1. 서버 기본 세팅/코드 배치/의존성 설치
+2. PostgreSQL 생성 후 `db/schema.sql` + `db/migrations/*.sql` 적용
+3. `/srv/app/.env` 작성 (`DATABASE_URL`, `JWT_SECRET`, `CF_*`, `MASTER_*`)
+4. systemd 반영 후 `work-time-api`, `work-time-cloudflared` 시작
+5. `https://<worker-url>/_edge/status` 확인 (`has_active_url=true`)
+6. Worker URL 접속 후 `MASTER_LOGIN_ID` / `MASTER_PASSWORD`로 첫 로그인
+
+> `MASTER_*`는 SQL 파일에 들어가는 정적 seed가 아니라, API 시작 시 users가 비어 있으면 자동 생성되는 런타임 부트스트랩 계정입니다.
+
+---
+
 ## 1. 최종 아키텍처
 
 ```text
@@ -643,24 +657,6 @@ curl -fsS https://<worker-url>/_edge/status
 
 `active_url_host`가 `trycloudflare.com` 또는 `cfargotunnel.com` 계열인지 확인하세요.
 
-만약 `active_url_host=developers.cloudflare.com` 같은 값이 남아있다면, 잘못된 KV 값을 삭제하세요.
-
-참고: 최신 updater(`stream-simple-v9`)는 시작 시 오염 KV 값 탐지 시 자동 삭제를 시도합니다.
-
-```bash
-# 반드시 .env를 먼저 로드 (CF_* 변수 미설정 상태면 404/인증오류가 납니다)
-cd /srv/app
-set -a; source /srv/app/.env; set +a
-
-# 오염 가능성이 있는 키 둘 다 삭제
-curl -fsS -X DELETE   "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/active_url"   -H "Authorization: Bearer ${CF_API_TOKEN}"
-curl -fsS -X DELETE   "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/ACTIVE_URL"   -H "Authorization: Bearer ${CF_API_TOKEN}"
-
-# 이후 서비스 재시작
-sudo systemctl restart work-time-cloudflared.service
-curl -fsS https://<worker-url>/_edge/status
-```
-
 ### C) 로그에 `curl: (22) ... 404`가 찍히는 원인
 대부분 아래 중 하나입니다.
 - `.env`의 `CF_ACCOUNT_ID` 또는 `CF_KV_NAMESPACE_ID`가 실제 Worker가 쓰는 KV와 다름
@@ -669,85 +665,26 @@ curl -fsS https://<worker-url>/_edge/status
 
 `stream-simple-v9`부터는 오염 키 정리 시 404를 치명오류로 보지 않고 계속 진행하며, 필요하면 빈 값 PUT으로 대체합니다.
 
-아래로 현재 값/권한을 먼저 검증하세요.
-
 ```bash
 cd /srv/app
 set -a; source /srv/app/.env; set +a
 
-# 값이 비어 있으면 즉시 설정 문제
 printf 'ACCOUNT=%s\nNAMESPACE=%s\n' "$CF_ACCOUNT_ID" "$CF_KV_NAMESPACE_ID"
 
-# 토큰으로 읽기/쓰기 되는지 확인
-curl -i -X GET   "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/active_url"   -H "Authorization: Bearer ${CF_API_TOKEN}"
+curl -i -X GET \
+  "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/active_url" \
+  -H "Authorization: Bearer ${CF_API_TOKEN}"
 ```
-
-
-### E) UI는 뜨는데 `/api/health`가 400(Bad Request)인 경우
-증상 예시:
-- 브라우저 콘솔에 `GET https://<...>.trycloudflare.com/api/health 400 (Bad Request)` 반복
-- 로그인 화면은 뜨지만 상태 표시가 계속 빨간색
-
-원인:
-- FastAPI `TrustedHostMiddleware`가 현재 터널 호스트(`*.trycloudflare.com` 등)를 허용하지 않아 Host 헤더를 차단.
-
-확인:
-```bash
-journalctl -u work-time-api -n 120 --no-pager
-# Invalid host header 류 메시지 확인
-```
-
-해결:
-```bash
-sudo sed -i 's#^TRUSTED_HOSTS=.*#TRUSTED_HOSTS=localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev#' /srv/app/.env
-sudo sed -i 's#^TRUST_ALL_HOSTS=.*#TRUST_ALL_HOSTS=false#' /srv/app/.env
-
-# 긴급 우회(임시):
-# sudo sed -i 's#^TRUST_ALL_HOSTS=.*#TRUST_ALL_HOSTS=true#' /srv/app/.env
-
-sudo systemctl restart work-time-api
-curl -i https://<현재-터널-호스트>/api/health
-```
-
-`200 OK`가 나오면 UI의 상태 체크/로그인이 정상화됩니다.
-
-
-
-### F) 마스터 계정은 SQL에 자동 포함되나?
-아닙니다. `MASTER_*`는 **DB schema.sql에 들어가는 정적 데이터가 아니라 런타임 부트스트랩 설정**입니다.
-
-최신 코드에서는 API 시작 시 `users` 테이블이 비어 있으면 `MASTER_*` 값으로 마스터 계정을 자동 생성합니다.
-
-검증:
-```bash
-# API 재시작(부트스트랩 트리거)
-sudo systemctl restart work-time-api
-
-# 계정 존재 확인
-psql "$DATABASE_URL" -c "select u.role, a.login_id from users u join auth_accounts a on a.user_id=u.id order by u.created_at;"
-```
-
-로그인 안 될 때 점검:
-1. `.env`의 `MASTER_LOGIN_ID`, `MASTER_PASSWORD` 값 확인
-2. `users`가 이미 비어있지 않으면 자동 생성이 다시 실행되지 않음(기존 계정 사용)
-3. 정말 초기화가 필요하면(주의) `POST /reset`의 `ALL`로 초기화 후 재시드하거나, DB에서 수동 계정 복구
 
 ### D) Quick Tunnel 429가 계속돼 서비스가 안 올라오는 경우(근본 해결)
-Quick Tunnel(계정 없는 임시 터널)은 Cloudflare 측 정책으로 429가 길게 지속될 수 있습니다.
+Quick Tunnel(계정 없는 임시 터널)은 Cloudflare 정책으로 429가 길게 지속될 수 있습니다.
 운영 환경에서는 **Named Tunnel**로 전환해야 재발을 막을 수 있습니다.
-
-1) Cloudflare Zero Trust에서 Named Tunnel 생성
-2) Public Hostname 연결(예: `worktime-tunnel.example.com`)
-3) 토큰 발급 후 `.env`에 설정
 
 ```bash
 CLOUDFLARED_TUNNEL_TOKEN=<issued-token>
 STATIC_TUNNEL_URL=https://worktime-tunnel.example.com
-# STATIC_TUNNEL_URL host가 필터에 포함되어야 함
 TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com,example.com
 ```
-
-4) 배포/재시작
 
 ```bash
 sudo install -m 0755 /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
@@ -757,7 +694,25 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 curl -fsS https://<worker-url>/_edge/status
 ```
 
-정상이라면 `/_edge/status`에 `has_active_url=true`와 `active_url_host=<named-host>`가 표시됩니다.
+### E) UI는 뜨는데 `/api/health`가 400(Bad Request)인 경우
+증상: UI는 보이는데 상태 표시가 빨간색이고 `/api/health`가 400 반복.
+원인: FastAPI `TrustedHostMiddleware`가 현재 터널 호스트를 차단.
+
+```bash
+sudo sed -i 's#^TRUSTED_HOSTS=.*#TRUSTED_HOSTS=localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev#' /srv/app/.env
+sudo sed -i 's#^TRUST_ALL_HOSTS=.*#TRUST_ALL_HOSTS=false#' /srv/app/.env
+sudo systemctl restart work-time-api
+curl -i https://<현재-터널-호스트>/api/health
+```
+
+### F) 마스터 계정은 SQL에 자동 포함되나?
+아닙니다. `MASTER_*`는 SQL seed가 아니라 런타임 부트스트랩 설정입니다.
+최신 코드에서는 API 시작 시 `users` 테이블이 비어 있으면 `MASTER_*` 값으로 마스터 계정을 자동 생성합니다.
+
+```bash
+sudo systemctl restart work-time-api
+psql "$DATABASE_URL" -c "select u.role, a.login_id from users u join auth_accounts a on a.user_id=u.id order by u.created_at;"
+```
 
 ---
 

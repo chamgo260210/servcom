@@ -43,6 +43,16 @@ for f in db/migrations/*.sql; do
 done
 ```
 
+
+## 신규 VM 배포 후 첫 로그인까지 빠른 체크리스트
+1. `.env`에 DB/JWT/Cloudflare 값 + `MASTER_*` 설정
+2. DB 스키마/마이그레이션 적용
+3. `work-time-api`, `work-time-cloudflared` 서비스 기동
+4. Worker `/_edge/status`에서 `has_active_url=true` 확인
+5. 브라우저에서 Worker URL 접속 → 로그인
+
+> 참고: `MASTER_*`는 SQL seed가 아니라 **API 시작 시 users가 비어 있을 때 자동 생성되는 부트스트랩 계정**입니다.
+
 ## 시설망 서버컴 배포
 아래 문서를 순서대로 진행하세요(우분투만 설치된 초기 서버 기준).
 
