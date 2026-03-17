@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-02-11-stream-simple-v9"
+SCRIPT_VERSION="2026-03-17-stream-simple-v10"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
 # Optional:
 #   LOCAL_URL=http://127.0.0.1:8080
 #   TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
+#   TUNNEL_HOST_DENY=api.trycloudflare.com
 #   KV_KEY=active_url
 #   KV_CLEANUP_KEYS=active_url,ACTIVE_URL
 #   SKIP_KV_UPDATE=true
@@ -23,6 +24,7 @@ CLOUDFLARED_LOG="$LOG_DIR/cloudflared.log"
 
 LOCAL_URL=${LOCAL_URL:-http://127.0.0.1:8080}
 TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com,cfargotunnel.com}
+TUNNEL_HOST_DENY=${TUNNEL_HOST_DENY:-api.trycloudflare.com}
 KV_KEY=${KV_KEY:-active_url}
 KV_CLEANUP_KEYS=${KV_CLEANUP_KEYS:-active_url,ACTIVE_URL}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
@@ -55,6 +57,17 @@ allowed_host() {
     filter=$(echo "$filter" | xargs)
     [[ -z "$filter" ]] && continue
     [[ "$host" == "$filter" || "$host" == *".${filter}" ]] && return 0
+  done
+  return 1
+}
+
+denied_host() {
+  local host="$1"
+  IFS=',' read -ra denied <<<"$TUNNEL_HOST_DENY"
+  for deny in "${denied[@]}"; do
+    deny=$(echo "$deny" | xargs)
+    [[ -z "$deny" ]] && continue
+    [[ "${host,,}" == "${deny,,}" ]] && return 0
   done
   return 1
 }
@@ -112,7 +125,7 @@ sanitize_existing_kv() {
     [[ -z "$current" ]] && continue
     local host
     host=$(extract_host "$current")
-    if ! allowed_host "$host"; then
+    if ! allowed_host "$host" || denied_host "$host"; then
       echo "[WARN] Found polluted KV value ($current). Deleting key ${key}." >&2
       kv_delete_key "$key"
     fi
@@ -176,7 +189,7 @@ run_quick_tunnel_stream_once() {
 
     local host
     host=$(extract_host "$url")
-    if ! allowed_host "$host"; then
+    if ! allowed_host "$host" || denied_host "$host"; then
       continue
     fi
 
