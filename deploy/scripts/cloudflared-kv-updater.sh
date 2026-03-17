@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-03-17-stream-simple-v10"
+SCRIPT_VERSION="2026-03-17-stream-simple-v11"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -10,7 +10,9 @@ SCRIPT_VERSION="2026-03-17-stream-simple-v10"
 #   TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
 #   TUNNEL_HOST_DENY=api.trycloudflare.com
 #   KV_KEY=active_url
+#   KV_UPDATED_AT_KEY=active_url_updated_at
 #   KV_CLEANUP_KEYS=active_url,ACTIVE_URL
+#   CLEAR_KV_ON_429=true
 #   SKIP_KV_UPDATE=true
 #   RATE_LIMIT_COOLDOWN_SECONDS=300
 #   NORMAL_RETRY_SECONDS=5
@@ -26,7 +28,9 @@ LOCAL_URL=${LOCAL_URL:-http://127.0.0.1:8080}
 TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com,cfargotunnel.com}
 TUNNEL_HOST_DENY=${TUNNEL_HOST_DENY:-api.trycloudflare.com}
 KV_KEY=${KV_KEY:-active_url}
+KV_UPDATED_AT_KEY=${KV_UPDATED_AT_KEY:-active_url_updated_at}
 KV_CLEANUP_KEYS=${KV_CLEANUP_KEYS:-active_url,ACTIVE_URL}
+CLEAR_KV_ON_429=${CLEAR_KV_ON_429:-true}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
 NORMAL_RETRY_SECONDS=${NORMAL_RETRY_SECONDS:-5}
@@ -132,11 +136,20 @@ sanitize_existing_kv() {
   done
 }
 
+clear_active_kv() {
+  local reason="$1"
+  [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
+  echo "[WARN] Clearing active tunnel KV due to: ${reason}" >&2
+  kv_delete_key "$KV_KEY"
+  kv_delete_key "$KV_UPDATED_AT_KEY"
+}
+
 put_and_verify_kv() {
   local url="$1"
   [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
 
   kv_put_key "$KV_KEY" "$url"
+  kv_put_key "$KV_UPDATED_AT_KEY" "$(date +%s)"
   local readback
   readback=$(kv_get_key "$KV_KEY")
   if [[ "$readback" != "$url" ]]; then
@@ -224,6 +237,9 @@ while true; do
   rc=$?
   if [[ "$rc" -eq 79 ]]; then
     echo "[WARN] Quick Tunnel rate-limited (429). cooldown ${RATE_LIMIT_COOLDOWN_SECONDS}s" >&2
+    if [[ "${CLEAR_KV_ON_429,,}" == "true" ]]; then
+      clear_active_kv "quick tunnel rate-limited (429)"
+    fi
     sleep "$RATE_LIMIT_COOLDOWN_SECONDS"
   else
     echo "[WARN] quick tunnel ended without valid URL. retry in ${NORMAL_RETRY_SECONDS}s" >&2

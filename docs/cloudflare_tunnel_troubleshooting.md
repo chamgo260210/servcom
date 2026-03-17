@@ -3,6 +3,7 @@
 이 문서는 다음 증상을 빠르게 분리 진단하기 위한 절차입니다.
 
 - 고정 Worker 도메인 접속 시 302가 발생하지만 실제 앱 연결 실패
+- Cloudflare 530 / Error 1016 (Origin DNS error) 노출
 - KV `active_url` 값이 갱신되는데도 간헐적으로 접속 실패
 - 서버 로컬(`/health`)은 정상인데 외부 도메인은 실패
 
@@ -15,7 +16,10 @@
 2. **서버 DNS 불안정으로 KV 업데이트 실패 반복 가능**
    - 서버 로그에 `Could not resolve host: api.cloudflare.com` 이 보이면 KV write/readback 검증이 실패하며, stale/empty KV로 이어집니다.
 
-3. **엣지에서 redirect만 사용하는 구조의 취약성**
+3. **엣지에서 stale URL을 계속 사용한 경우 530/1016 발생**
+   - Quick Tunnel이 만료/종료되었는데 KV에 이전 URL이 남아 있으면 Cloudflare가 Origin DNS error(1016)를 반환합니다.
+
+4. **엣지에서 redirect만 사용하는 구조의 취약성**
    - 클라이언트가 최종 `*.trycloudflare.com`에 직접 접속해야 하므로, 사용자 네트워크 정책/보안장비/브라우저 제약의 영향을 받습니다.
 
 ## 2) 스택별 단계 진단 절차
@@ -96,3 +100,19 @@ curl -I https://<worker-domain>/
 2. 서버 DNS 이중화(예: systemd-resolved + 신뢰 가능한 업스트림)
 3. 장애 대응을 위한 헬스체크/알람(Worker 상태, KV write 실패율, 429 빈도) 추가
 
+
+
+### F. 530/1016 즉시 조치
+
+```bash
+# worker 상태
+curl -s https://<worker-domain>/_edge/status
+
+# 서버에서 tunnel 상태
+systemctl status work-time-cloudflared --no-pager
+journalctl -u work-time-cloudflared -n 120 --no-pager
+```
+
+- 429가 반복되면 Quick Tunnel 신규 발급 자체가 막힌 상태입니다.
+- 이때는 `active_url`을 비우고(본 스크립트는 기본 자동 처리), cooldown 이후 재시도해야 합니다.
+- 운영 안정성이 필요하면 Named Tunnel로 전환하세요.

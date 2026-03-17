@@ -16,6 +16,11 @@ export default {
       { key: 'ACTIVE_URL', value: await env.TUNNEL_KV.get('ACTIVE_URL') },
     ];
 
+    const activeUpdatedAtRaw = await env.TUNNEL_KV.get(env.ACTIVE_URL_UPDATED_AT_KEY || 'active_url_updated_at');
+    const activeUpdatedAt = Number(activeUpdatedAtRaw || '0');
+    const activeAgeSeconds = activeUpdatedAt > 0 ? Math.max(0, Math.floor(Date.now() / 1000) - activeUpdatedAt) : null;
+    const maxActiveAgeSeconds = Number(env.MAX_ACTIVE_URL_AGE_SECONDS || '0');
+
     const allowedHosts = (env.ALLOWED_TUNNEL_HOSTS || 'trycloudflare.com,cfargotunnel.com')
       .split(',')
       .map((v) => v.trim())
@@ -67,6 +72,9 @@ export default {
           kv_key_checked: ['active_url', 'ACTIVE_URL'],
           block_direct_api: (env.BLOCK_DIRECT_API || 'false').toLowerCase() === 'true',
           proxy_mode: (env.PROXY_TO_TUNNEL || 'true').toLowerCase() === 'true',
+          active_updated_at_unix: activeUpdatedAt || null,
+          active_age_seconds: activeAgeSeconds,
+          max_active_age_seconds: maxActiveAgeSeconds,
         },
         { status: 200 },
       );
@@ -80,6 +88,13 @@ export default {
 
     if (!active) {
       return htmlError('Tunnel endpoint is not ready. KV active_url is empty or invalid.', 503);
+    }
+
+    if (maxActiveAgeSeconds > 0 && activeAgeSeconds !== null && activeAgeSeconds > maxActiveAgeSeconds) {
+      return htmlError(
+        `Tunnel endpoint is stale. age=${activeAgeSeconds}s exceeds max=${maxActiveAgeSeconds}s.`,
+        503,
+      );
     }
 
     let target;
@@ -104,7 +119,14 @@ export default {
     upstreamRequest.headers.set('x-forwarded-host', url.host);
     upstreamRequest.headers.set('x-servcom-edge', 'cloudflare-worker-proxy');
 
-    return fetch(upstreamRequest, { redirect: 'manual' });
+    const upstreamResponse = await fetch(upstreamRequest, { redirect: 'manual' });
+    if (upstreamResponse.status === 530) {
+      return htmlError(
+        'Tunnel origin DNS failed(530). Quick Tunnel may be expired/rate-limited; verify cloudflared and refresh active_url.',
+        503,
+      );
+    }
+    return upstreamResponse;
   },
 };
 
