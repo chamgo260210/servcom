@@ -49,7 +49,16 @@
 
 1. 시설망에서는 inbound가 막혀 있으므로 서버가 외부로 나가는 연결(outbound)만 활용해야 합니다.
 2. Quick Tunnel은 서버가 Cloudflare에 outbound 연결을 유지하므로 인바운드 개방이 필요 없습니다.
-3. Quick Tunnel URL은 재시작 시 바뀌므로, Worker가 KV의 `active_url`을 읽어 redirect 하도록 하면 사용자 진입 URL은 고정됩니다.
+3. Quick Tunnel URL은 재시작 시 바뀌므로, Worker가 KV의 `active_url`을 읽어 프록시(fetch) 또는 redirect 하도록 하면 사용자 진입 URL은 고정됩니다.
+
+---
+
+
+
+### 운영 참고 문서
+
+- Cloudflare/터널 장애 단계 진단: `docs/cloudflare_tunnel_troubleshooting.md`
+- 코드 변경 배포 절차: `docs/change_rollout_runbook.md`
 
 ---
 
@@ -310,6 +319,9 @@ CF_API_TOKEN=<KV쓰기권한_API_Token>
 CF_KV_NAMESPACE_ID=<KV_Namespace_ID>
 KV_KEY=active_url
 TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
+TUNNEL_HOST_DENY=api.trycloudflare.com
+KV_UPDATED_AT_KEY=active_url_updated_at
+CLEAR_KV_ON_429=true
 RATE_LIMIT_COOLDOWN_SECONDS=300
 NORMAL_RETRY_SECONDS=5
 LOCAL_URL=http://127.0.0.1:8080
@@ -476,6 +488,10 @@ curl -i http://127.0.0.1:8080/health
 3. 에디터 코드 전체를 `deploy/cloudflare/worker.js` 내용으로 교체
 4. Worker Settings > Variables에서 추가:
    - `ALLOWED_TUNNEL_HOSTS=trycloudflare.com,cfargotunnel.com`
+   - `DENIED_TUNNEL_HOSTS=api.trycloudflare.com`
+   - `PROXY_TO_TUNNEL=true` (권장, 고정 도메인 유지)
+   - `MAX_ACTIVE_URL_AGE_SECONDS=1800` (권장, stale URL 차단)
+   - `ACTIVE_URL_UPDATED_AT_KEY=active_url_updated_at`
    - `BLOCK_DIRECT_API=true` (원하면)
 5. Worker Settings > Bindings > KV Namespace 바인딩 추가:
    - Variable name: `TUNNEL_KV`
@@ -489,7 +505,8 @@ curl -i http://127.0.0.1:8080/health
 
 추가 디버그 엔드포인트:
 - `https://<worker-url>/_edge/status`
-  - `has_active_url=true` 이어야 리다이렉트가 동작합니다.
+  - `has_active_url=true` 이어야 프록시/리다이렉트가 동작합니다.
+  - `active_age_seconds`가 비정상적으로 크면 stale URL 가능성이 큽니다.
 
 ---
 
