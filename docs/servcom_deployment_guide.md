@@ -58,6 +58,7 @@
 ### 운영 참고 문서
 
 - Cloudflare/터널 장애 단계 진단: `docs/cloudflare_tunnel_troubleshooting.md`
+- Named Tunnel 전환 런북: `docs/named_tunnel_migration_runbook.md`
 - 코드 변경 배포 절차: `docs/change_rollout_runbook.md`
 
 ---

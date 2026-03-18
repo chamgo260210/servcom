@@ -116,3 +116,6 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 - 429가 반복되면 Quick Tunnel 신규 발급 자체가 막힌 상태입니다.
 - 이때는 `active_url`을 비우고(본 스크립트는 기본 자동 처리), cooldown 이후 재시도해야 합니다.
 - 운영 안정성이 필요하면 Named Tunnel로 전환하세요.
+
+
+참고: Named Tunnel 전환 절차는 `docs/named_tunnel_migration_runbook.md`를 따르세요.
