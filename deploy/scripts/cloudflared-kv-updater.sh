@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-03-18-stream-simple-v13-quick-only"
+SCRIPT_VERSION="2026-03-18-stream-simple-v14-quick-only-lowwrite"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -12,7 +12,7 @@ SCRIPT_VERSION="2026-03-18-stream-simple-v13-quick-only"
 #   KV_KEY=active_url
 #   KV_UPDATED_AT_KEY=active_url_updated_at
 #   KV_CLEANUP_KEYS=active_url,ACTIVE_URL
-#   CLEAR_KV_ON_429=true
+#   CLEAR_KV_ON_429=false
 #   SKIP_KV_UPDATE=true
 #   RATE_LIMIT_COOLDOWN_SECONDS=300
 #   NORMAL_RETRY_SECONDS=5
@@ -27,7 +27,7 @@ TUNNEL_HOST_DENY=${TUNNEL_HOST_DENY:-api.trycloudflare.com}
 KV_KEY=${KV_KEY:-active_url}
 KV_UPDATED_AT_KEY=${KV_UPDATED_AT_KEY:-active_url_updated_at}
 KV_CLEANUP_KEYS=${KV_CLEANUP_KEYS:-active_url,ACTIVE_URL}
-CLEAR_KV_ON_429=${CLEAR_KV_ON_429:-true}
+CLEAR_KV_ON_429=${CLEAR_KV_ON_429:-false}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
 NORMAL_RETRY_SECONDS=${NORMAL_RETRY_SECONDS:-5}
@@ -137,6 +137,13 @@ clear_active_kv() {
 put_and_verify_kv() {
   local url="$1"
   [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
+
+  local current
+  current=$(kv_get_key "$KV_KEY")
+  if [[ "$current" == "$url" ]]; then
+    echo "[INFO] KV key '${KV_KEY}' already up-to-date; skip PUT" >&2
+    return 0
+  fi
 
   kv_put_key "$KV_KEY" "$url"
   kv_put_key "$KV_UPDATED_AT_KEY" "$(date +%s)"

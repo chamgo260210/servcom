@@ -321,7 +321,7 @@ KV_KEY=active_url
 TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
 TUNNEL_HOST_DENY=api.trycloudflare.com
 KV_UPDATED_AT_KEY=active_url_updated_at
-CLEAR_KV_ON_429=true
+CLEAR_KV_ON_429=false
 RATE_LIMIT_COOLDOWN_SECONDS=300
 NORMAL_RETRY_SECONDS=5
 LOCAL_URL=http://127.0.0.1:8080
@@ -492,6 +492,7 @@ curl -i http://127.0.0.1:8080/health
    - `PROXY_TO_TUNNEL=true` (권장, 고정 도메인 유지)
    - `MAX_ACTIVE_URL_AGE_SECONDS=1800` (권장, stale URL 차단)
    - `ACTIVE_URL_UPDATED_AT_KEY=active_url_updated_at`
+   - `EDGE_RATE_LIMIT_PER_MINUTE=0` (권장: 0=비활성, KV write 절약)
    - `BLOCK_DIRECT_API=true` (원하면)
 5. Worker Settings > Bindings > KV Namespace 바인딩 추가:
    - Variable name: `TUNNEL_KV`
@@ -714,7 +715,7 @@ curl -fsS https://<worker-url>/_edge/status
 ```
 
 - 429가 이어지면 `RATE_LIMIT_COOLDOWN_SECONDS`를 늘리고 재시작 빈도를 낮추세요.
-- `CLEAR_KV_ON_429=true`로 stale URL 노출을 줄일 수 있습니다.
+- `CLEAR_KV_ON_429=false`로 stale URL 노출을 줄일 수 있습니다.
 
 ### E) UI는 뜨는데 `/api/health`가 400(Bad Request)인 경우
 증상: UI는 보이는데 상태 표시가 빨간색이고 `/api/health`가 400 반복.

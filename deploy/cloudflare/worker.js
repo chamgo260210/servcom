@@ -3,12 +3,16 @@ export default {
     const url = new URL(request.url);
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
-    // 1) very simple rate limit using KV (free-plan friendly)
-    const minuteKey = `rl:${ip}:${Math.floor(Date.now() / 60000)}`;
-    const count = Number((await env.TUNNEL_KV.get(minuteKey)) || '0') + 1;
-    await env.TUNNEL_KV.put(minuteKey, String(count), { expirationTtl: 90 });
-    if (count > 120) {
-      return new Response('Too Many Requests', { status: 429 });
+    // Optional edge rate-limit using KV.
+    // Disabled by default to avoid exhausting KV daily write quota.
+    const edgeRateLimitPerMinute = Number(env.EDGE_RATE_LIMIT_PER_MINUTE || '0');
+    if (edgeRateLimitPerMinute > 0) {
+      const minuteKey = `rl:${ip}:${Math.floor(Date.now() / 60000)}`;
+      const count = Number((await env.TUNNEL_KV.get(minuteKey)) || '0') + 1;
+      await env.TUNNEL_KV.put(minuteKey, String(count), { expirationTtl: 90 });
+      if (count > edgeRateLimitPerMinute) {
+        return new Response('Too Many Requests', { status: 429 });
+      }
     }
 
     const kvCandidates = [
@@ -75,6 +79,7 @@ export default {
           active_updated_at_unix: activeUpdatedAt || null,
           active_age_seconds: activeAgeSeconds,
           max_active_age_seconds: maxActiveAgeSeconds,
+          edge_rate_limit_per_minute: edgeRateLimitPerMinute,
         },
         { status: 200 },
       );

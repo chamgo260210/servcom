@@ -117,4 +117,14 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 - 이때는 `active_url`을 비우고(본 스크립트는 기본 자동 처리), cooldown 이후 재시도해야 합니다.
 - 운영 중이면 재시작 빈도를 낮추고 429 cooldown 정책을 길게 잡으세요.
 
+### G. KV `put()` 일일 한도 초과가 빠르게 발생하는 경우
+
+원인 후보:
+- Worker 요청마다 KV 기반 rate-limit 카운트를 쓰는 구성
+- 429 구간에서 updater가 `active_url` 삭제/쓰기 루프를 반복
+
+대응:
+- Worker 변수 `EDGE_RATE_LIMIT_PER_MINUTE=0` (기본 비활성)
+- updater `.env`에서 `CLEAR_KV_ON_429=false`로 write 최소화
+- updater는 동일 URL이면 KV PUT을 생략(현재 스크립트 반영)
 
