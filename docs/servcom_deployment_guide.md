@@ -58,8 +58,6 @@
 ### 운영 참고 문서
 
 - Cloudflare/터널 장애 단계 진단: `docs/cloudflare_tunnel_troubleshooting.md`
-- Named Tunnel 전환 런북: `docs/named_tunnel_migration_runbook.md`
-- 운영 업데이트(2026-03-18): `docs/ops_update_2026-03-18_named-tunnel-cutover.md`
 - 코드 변경 배포 절차: `docs/change_rollout_runbook.md`
 
 ---
@@ -695,23 +693,28 @@ curl -i -X GET \
   -H "Authorization: Bearer ${CF_API_TOKEN}"
 ```
 
-### D) Quick Tunnel 429가 계속돼 서비스가 안 올라오는 경우(근본 해결)
-Quick Tunnel(계정 없는 임시 터널)은 Cloudflare 정책으로 429가 길게 지속될 수 있습니다.
-운영 환경에서는 **Named Tunnel**로 전환해야 재발을 막을 수 있습니다.
+### D) Quick Tunnel 429가 계속돼 서비스가 안 올라오는 경우
+Quick Tunnel(계정 없는 임시 터널)은 429가 길게 지속될 수 있습니다.
+
+권장 대응(Quick Tunnel 유지):
 
 ```bash
-CLOUDFLARED_TUNNEL_TOKEN=<issued-token>
-STATIC_TUNNEL_URL=https://worktime-tunnel.example.com
-TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com,example.com
-```
-
-```bash
+# 1) 기존 updater 최신본 재배치
 sudo install -m 0755 /srv/app/deploy/scripts/cloudflared-kv-updater.sh /srv/app/scripts/cloudflared-kv-updater.sh
+
+# 2) systemd 재기동
 sudo systemctl daemon-reload
 sudo systemctl restart work-time-cloudflared.service
+
+# 3) 최근 로그에서 429/URL 발급 상태 확인
 journalctl -u work-time-cloudflared -n 120 --no-pager
+
+# 4) edge 상태 확인
 curl -fsS https://<worker-url>/_edge/status
 ```
+
+- 429가 이어지면 `RATE_LIMIT_COOLDOWN_SECONDS`를 늘리고 재시작 빈도를 낮추세요.
+- `CLEAR_KV_ON_429=true`로 stale URL 노출을 줄일 수 있습니다.
 
 ### E) UI는 뜨는데 `/api/health`가 400(Bad Request)인 경우
 증상: UI는 보이는데 상태 표시가 빨간색이고 `/api/health`가 400 반복.

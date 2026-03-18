@@ -96,8 +96,8 @@ curl -I https://<worker-domain>/
 
 ### 구조 개선 (중장기)
 
-1. Quick Tunnel 대신 **Named Tunnel + 고정 호스트네임** 전환
-2. 서버 DNS 이중화(예: systemd-resolved + 신뢰 가능한 업스트림)
+1. 서버 DNS 이중화(예: systemd-resolved + 신뢰 가능한 업스트림)
+2. Quick Tunnel 재시도 간격/재시작 정책 최적화(429 완화)
 3. 장애 대응을 위한 헬스체크/알람(Worker 상태, KV write 실패율, 429 빈도) 추가
 
 
@@ -115,9 +115,6 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 
 - 429가 반복되면 Quick Tunnel 신규 발급 자체가 막힌 상태입니다.
 - 이때는 `active_url`을 비우고(본 스크립트는 기본 자동 처리), cooldown 이후 재시도해야 합니다.
-- 운영 안정성이 필요하면 Named Tunnel로 전환하세요.
+- 운영 중이면 재시작 빈도를 낮추고 429 cooldown 정책을 길게 잡으세요.
 
 
-참고: Named Tunnel 전환 절차는 `docs/named_tunnel_migration_runbook.md`를 따르세요.
-
-운영 업데이트 요약(구조/즉시점검): `docs/ops_update_2026-03-18_named-tunnel-cutover.md`

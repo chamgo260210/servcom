@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-03-18-stream-simple-v12"
+SCRIPT_VERSION="2026-03-18-stream-simple-v13-quick-only"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -16,9 +16,6 @@ SCRIPT_VERSION="2026-03-18-stream-simple-v12"
 #   SKIP_KV_UPDATE=true
 #   RATE_LIMIT_COOLDOWN_SECONDS=300
 #   NORMAL_RETRY_SECONDS=5
-# Named Tunnel fallback:
-#   CLOUDFLARED_TUNNEL_TOKEN=...
-#   STATIC_TUNNEL_URL=https://your-tunnel-host.example.com
 
 LOG_DIR=${LOG_DIR:-/var/log/work-time}
 mkdir -p "$LOG_DIR"
@@ -34,8 +31,6 @@ CLEAR_KV_ON_429=${CLEAR_KV_ON_429:-true}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
 NORMAL_RETRY_SECONDS=${NORMAL_RETRY_SECONDS:-5}
-CLOUDFLARED_TUNNEL_TOKEN=${CLOUDFLARED_TUNNEL_TOKEN:-}
-STATIC_TUNNEL_URL=${STATIC_TUNNEL_URL:-}
 
 echo "[INFO] cloudflared-kv-updater start version=${SCRIPT_VERSION} user=$(id -un)" >&2
 
@@ -46,11 +41,6 @@ missing_vars=()
 
 if [[ "${#missing_vars[@]}" -gt 0 && "${SKIP_KV_UPDATE,,}" != "true" ]]; then
   echo "[ERROR] Missing required env vars: ${missing_vars[*]}" >&2
-  exit 78
-fi
-
-if [[ -n "$CLOUDFLARED_TUNNEL_TOKEN" && -z "$STATIC_TUNNEL_URL" ]]; then
-  echo "[ERROR] CLOUDFLARED_TUNNEL_TOKEN is set but STATIC_TUNNEL_URL is empty" >&2
   exit 78
 fi
 
@@ -160,40 +150,6 @@ put_and_verify_kv() {
   return 0
 }
 
-ensure_host_resolvable() {
-  local host="$1"
-  if ! getent hosts "$host" >/dev/null 2>&1; then
-    echo "[ERROR] STATIC_TUNNEL_URL host is not resolvable yet: ${host}" >&2
-    echo "[HINT] Check Cloudflare tunnel public hostname DNS/CNAME binding and wait for propagation." >&2
-    return 1
-  fi
-  return 0
-}
-
-run_named_tunnel_loop() {
-  local static_host
-  static_host=$(extract_host "$STATIC_TUNNEL_URL")
-  if ! allowed_host "$static_host"; then
-    echo "[ERROR] STATIC_TUNNEL_URL host is not allowed by TUNNEL_HOST_FILTER: $static_host" >&2
-    exit 78
-  fi
-
-  if ! ensure_host_resolvable "$static_host"; then
-    exit 78
-  fi
-
-  while true; do
-    sanitize_existing_kv
-    put_and_verify_kv "$STATIC_TUNNEL_URL" || { sleep 10; continue; }
-
-    : >"$CLOUDFLARED_LOG"
-    echo "[INFO] cloudflared named-tunnel start" >&2
-    cloudflared tunnel run --token "$CLOUDFLARED_TUNNEL_TOKEN" --no-autoupdate 2>&1 | tee -a "$CLOUDFLARED_LOG"
-    echo "[WARN] named tunnel exited; retry in ${NORMAL_RETRY_SECONDS}s" >&2
-    sleep "$NORMAL_RETRY_SECONDS"
-  done
-}
-
 run_quick_tunnel_stream_once() {
   local saw429=0
   local updated=0
@@ -234,11 +190,6 @@ run_quick_tunnel_stream_once() {
   fi
   return 1
 }
-
-if [[ -n "$CLOUDFLARED_TUNNEL_TOKEN" ]]; then
-  echo "[INFO] named tunnel mode enabled (token present)." >&2
-  run_named_tunnel_loop
-fi
 
 while true; do
   sanitize_existing_kv
