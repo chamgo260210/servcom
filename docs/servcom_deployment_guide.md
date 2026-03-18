@@ -492,6 +492,7 @@ curl -i http://127.0.0.1:8080/health
    - `DENIED_TUNNEL_HOSTS=api.trycloudflare.com`
    - `MAX_ACTIVE_URL_AGE_SECONDS=1800` (권장, stale URL 차단)
    - `ACTIVE_URL_UPDATED_AT_KEY=active_url_updated_at`
+   - `ACTIVE_URL_CACHE_TTL_SECONDS=30` (권장: Worker KV read 캐시)
 5. Worker Settings > Bindings > KV Namespace 바인딩 추가:
    - Variable name: `TUNNEL_KV`
    - Namespace: `work-time-kv`
@@ -506,6 +507,9 @@ curl -i http://127.0.0.1:8080/health
 - `https://<worker-url>/_edge/status`
   - `has_active_url=true` 이어야 리다이렉트가 동작합니다.
   - `active_age_seconds`가 비정상적으로 크면 stale URL 가능성이 큽니다.
+
+> 비용/사용량 관점에서 기본 권장은 **KV 단일 저장소 + Worker 메모리 캐시** 입니다.
+> D1를 함께 쓰면 write 경로가 늘어나 운영 복잡도와 실패 지점이 증가할 수 있습니다.
 
 ---
 

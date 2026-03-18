@@ -128,3 +128,8 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 - updater `.env`에서 `SANITIZE_EXISTING_KV=false`로 주기적 KV 조회 최소화
 - updater는 동일 URL이면 KV PUT을 생략(현재 스크립트 반영)
 
+### H. KV vs D1 선택 기준 (사용량 최적화 관점)
+
+- **권장 기본값:** KV 단일 저장소 + Worker 메모리 캐시(`ACTIVE_URL_CACHE_TTL_SECONDS`)
+- D1 단독/병행은 가능하지만, 현재 시나리오(활성 URL 1개 저장)에서는 이점보다 복잡도가 커질 수 있습니다.
+- write 최소화 목표라면 "URL 변경 시점에만 updater가 KV PUT" 구조가 가장 단순합니다.
