@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-03-18-stream-simple-v14-quick-only-lowwrite"
+SCRIPT_VERSION="2026-03-18-stream-simple-v15-quick-only-minimal"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -12,6 +12,7 @@ SCRIPT_VERSION="2026-03-18-stream-simple-v14-quick-only-lowwrite"
 #   KV_KEY=active_url
 #   KV_UPDATED_AT_KEY=active_url_updated_at
 #   KV_CLEANUP_KEYS=active_url,ACTIVE_URL
+#   SANITIZE_EXISTING_KV=false
 #   CLEAR_KV_ON_429=false
 #   SKIP_KV_UPDATE=true
 #   RATE_LIMIT_COOLDOWN_SECONDS=300
@@ -27,6 +28,7 @@ TUNNEL_HOST_DENY=${TUNNEL_HOST_DENY:-api.trycloudflare.com}
 KV_KEY=${KV_KEY:-active_url}
 KV_UPDATED_AT_KEY=${KV_UPDATED_AT_KEY:-active_url_updated_at}
 KV_CLEANUP_KEYS=${KV_CLEANUP_KEYS:-active_url,ACTIVE_URL}
+SANITIZE_EXISTING_KV=${SANITIZE_EXISTING_KV:-false}
 CLEAR_KV_ON_429=${CLEAR_KV_ON_429:-false}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
@@ -108,6 +110,11 @@ kv_delete_key() {
   esac
 }
 
+ensure_host_resolvable() {
+  local host="$1"
+  getent hosts "$host" >/dev/null 2>&1
+}
+
 sanitize_existing_kv() {
   [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
   IFS=',' read -ra keys <<<"$KV_CLEANUP_KEYS"
@@ -183,6 +190,11 @@ run_quick_tunnel_stream_once() {
       continue
     fi
 
+    if ! ensure_host_resolvable "$host"; then
+      echo "[WARN] Discovered URL host is not resolvable yet. skip url=${url}" >&2
+      continue
+    fi
+
     echo "[INFO] Discovered tunnel URL: $url" >&2
     if put_and_verify_kv "$url"; then
       updated=1
@@ -199,7 +211,9 @@ run_quick_tunnel_stream_once() {
 }
 
 while true; do
-  sanitize_existing_kv
+  if [[ "${SANITIZE_EXISTING_KV,,}" == "true" ]]; then
+    sanitize_existing_kv
+  fi
   if run_quick_tunnel_stream_once; then
     echo "[WARN] quick tunnel process ended; retry in ${NORMAL_RETRY_SECONDS}s" >&2
     sleep "$NORMAL_RETRY_SECONDS"

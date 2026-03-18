@@ -321,6 +321,7 @@ KV_KEY=active_url
 TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
 TUNNEL_HOST_DENY=api.trycloudflare.com
 KV_UPDATED_AT_KEY=active_url_updated_at
+SANITIZE_EXISTING_KV=false
 CLEAR_KV_ON_429=false
 RATE_LIMIT_COOLDOWN_SECONDS=300
 NORMAL_RETRY_SECONDS=5
@@ -489,11 +490,8 @@ curl -i http://127.0.0.1:8080/health
 4. Worker Settings > Variables에서 추가:
    - `ALLOWED_TUNNEL_HOSTS=trycloudflare.com,cfargotunnel.com`
    - `DENIED_TUNNEL_HOSTS=api.trycloudflare.com`
-   - `PROXY_TO_TUNNEL=true` (권장, 고정 도메인 유지)
    - `MAX_ACTIVE_URL_AGE_SECONDS=1800` (권장, stale URL 차단)
    - `ACTIVE_URL_UPDATED_AT_KEY=active_url_updated_at`
-   - `EDGE_RATE_LIMIT_PER_MINUTE=0` (권장: 0=비활성, KV write 절약)
-   - `BLOCK_DIRECT_API=true` (원하면)
 5. Worker Settings > Bindings > KV Namespace 바인딩 추가:
    - Variable name: `TUNNEL_KV`
    - Namespace: `work-time-kv`
@@ -506,7 +504,7 @@ curl -i http://127.0.0.1:8080/health
 
 추가 디버그 엔드포인트:
 - `https://<worker-url>/_edge/status`
-  - `has_active_url=true` 이어야 프록시/리다이렉트가 동작합니다.
+  - `has_active_url=true` 이어야 리다이렉트가 동작합니다.
   - `active_age_seconds`가 비정상적으로 크면 stale URL 가능성이 큽니다.
 
 ---

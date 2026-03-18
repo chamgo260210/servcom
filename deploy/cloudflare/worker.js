@@ -1,19 +1,6 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-
-    // Optional edge rate-limit using KV.
-    // Disabled by default to avoid exhausting KV daily write quota.
-    const edgeRateLimitPerMinute = Number(env.EDGE_RATE_LIMIT_PER_MINUTE || '0');
-    if (edgeRateLimitPerMinute > 0) {
-      const minuteKey = `rl:${ip}:${Math.floor(Date.now() / 60000)}`;
-      const count = Number((await env.TUNNEL_KV.get(minuteKey)) || '0') + 1;
-      await env.TUNNEL_KV.put(minuteKey, String(count), { expirationTtl: 90 });
-      if (count > edgeRateLimitPerMinute) {
-        return new Response('Too Many Requests', { status: 429 });
-      }
-    }
 
     const kvCandidates = [
       { key: 'active_url', value: await env.TUNNEL_KV.get('active_url') },
@@ -60,7 +47,7 @@ export default {
       }
     }
 
-    // Optional debug endpoint (do not expose secrets)
+    // Optional debug endpoint (read-only)
     if (url.pathname === '/_edge/status') {
       let host = null;
       try {
@@ -74,21 +61,12 @@ export default {
           active_url_host: host || invalidHost,
           active_url_source_key: activeSourceKey,
           kv_key_checked: ['active_url', 'ACTIVE_URL'],
-          block_direct_api: (env.BLOCK_DIRECT_API || 'false').toLowerCase() === 'true',
-          proxy_mode: (env.PROXY_TO_TUNNEL || 'true').toLowerCase() === 'true',
           active_updated_at_unix: activeUpdatedAt || null,
           active_age_seconds: activeAgeSeconds,
           max_active_age_seconds: maxActiveAgeSeconds,
-          edge_rate_limit_per_minute: edgeRateLimitPerMinute,
         },
         { status: 200 },
       );
-    }
-
-    // 2) optionally block direct /api path at Worker layer
-    const blockApi = (env.BLOCK_DIRECT_API || 'false').toLowerCase() === 'true';
-    if (blockApi && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/health')) {
-      return new Response('API access denied by edge policy', { status: 403 });
     }
 
     if (!active) {
@@ -113,25 +91,7 @@ export default {
       return htmlError(`KV active_url host is invalid/non-tunnel. host=${target.hostname}`, 503);
     }
 
-    const upstreamUrl = new URL(`${url.pathname}${url.search}`, target.origin);
-    const proxyMode = (env.PROXY_TO_TUNNEL || 'true').toLowerCase() === 'true';
-
-    if (!proxyMode) {
-      return Response.redirect(upstreamUrl.toString(), request.method === 'GET' ? 302 : 307);
-    }
-
-    const upstreamRequest = new Request(upstreamUrl.toString(), request);
-    upstreamRequest.headers.set('x-forwarded-host', url.host);
-    upstreamRequest.headers.set('x-servcom-edge', 'cloudflare-worker-proxy');
-
-    const upstreamResponse = await fetch(upstreamRequest, { redirect: 'manual' });
-    if (upstreamResponse.status === 530) {
-      return htmlError(
-        'Tunnel origin DNS failed(530). The active quick-tunnel hostname is not resolvable; refresh active_url from cloudflared logs and retry.',
-        503,
-      );
-    }
-    return upstreamResponse;
+    return Response.redirect(`${target.origin}${url.pathname}${url.search}`, request.method === 'GET' ? 302 : 307);
   },
 };
 

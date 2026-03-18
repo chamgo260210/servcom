@@ -91,7 +91,7 @@ curl -I https://<worker-domain>/
 ### 즉시 적용 (단기)
 
 1. KV 업데이트 스크립트에서 `api.trycloudflare.com` 차단(deny list) 적용
-2. Worker에서 기본 동작을 redirect가 아니라 **proxy(fetch)** 로 전환
+2. Worker는 KV read + redirect 전용으로 단순화하고, write 동작은 updater로만 제한
 3. `_edge/status`로 운영자가 즉시 상태 확인 가능하게 유지
 
 ### 구조 개선 (중장기)
@@ -114,7 +114,7 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 ```
 
 - 429가 반복되면 Quick Tunnel 신규 발급 자체가 막힌 상태입니다.
-- 이때는 `active_url`을 비우고(본 스크립트는 기본 자동 처리), cooldown 이후 재시도해야 합니다.
+- 필요 시 `CLEAR_KV_ON_429=true`로 전환해 active_url 정리 정책을 사용할 수 있습니다(기본은 false).
 - 운영 중이면 재시작 빈도를 낮추고 429 cooldown 정책을 길게 잡으세요.
 
 ### G. KV `put()` 일일 한도 초과가 빠르게 발생하는 경우
@@ -124,7 +124,7 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 - 429 구간에서 updater가 `active_url` 삭제/쓰기 루프를 반복
 
 대응:
-- Worker 변수 `EDGE_RATE_LIMIT_PER_MINUTE=0` (기본 비활성)
 - updater `.env`에서 `CLEAR_KV_ON_429=false`로 write 최소화
+- updater `.env`에서 `SANITIZE_EXISTING_KV=false`로 주기적 KV 조회 최소화
 - updater는 동일 URL이면 KV PUT을 생략(현재 스크립트 반영)
 
