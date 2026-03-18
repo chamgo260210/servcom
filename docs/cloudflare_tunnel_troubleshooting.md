@@ -119,3 +119,5 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 
 
 참고: Named Tunnel 전환 절차는 `docs/named_tunnel_migration_runbook.md`를 따르세요.
+
+운영 업데이트 요약(구조/즉시점검): `docs/ops_update_2026-03-18_named-tunnel-cutover.md`

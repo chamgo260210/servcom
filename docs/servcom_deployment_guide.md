@@ -59,6 +59,7 @@
 
 - Cloudflare/터널 장애 단계 진단: `docs/cloudflare_tunnel_troubleshooting.md`
 - Named Tunnel 전환 런북: `docs/named_tunnel_migration_runbook.md`
+- 운영 업데이트(2026-03-18): `docs/ops_update_2026-03-18_named-tunnel-cutover.md`
 - 코드 변경 배포 절차: `docs/change_rollout_runbook.md`
 
 ---

@@ -122,7 +122,7 @@ export default {
     const upstreamResponse = await fetch(upstreamRequest, { redirect: 'manual' });
     if (upstreamResponse.status === 530) {
       return htmlError(
-        'Tunnel origin DNS failed(530). Quick Tunnel may be expired/rate-limited; verify cloudflared and refresh active_url.',
+        'Tunnel origin DNS failed(530). The active tunnel hostname is not resolvable; verify Named Tunnel public hostname/CNAME and refresh active_url.',
         503,
       );
     }

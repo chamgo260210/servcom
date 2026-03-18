@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-03-17-stream-simple-v11"
+SCRIPT_VERSION="2026-03-18-stream-simple-v12"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -160,11 +160,25 @@ put_and_verify_kv() {
   return 0
 }
 
+ensure_host_resolvable() {
+  local host="$1"
+  if ! getent hosts "$host" >/dev/null 2>&1; then
+    echo "[ERROR] STATIC_TUNNEL_URL host is not resolvable yet: ${host}" >&2
+    echo "[HINT] Check Cloudflare tunnel public hostname DNS/CNAME binding and wait for propagation." >&2
+    return 1
+  fi
+  return 0
+}
+
 run_named_tunnel_loop() {
   local static_host
   static_host=$(extract_host "$STATIC_TUNNEL_URL")
   if ! allowed_host "$static_host"; then
     echo "[ERROR] STATIC_TUNNEL_URL host is not allowed by TUNNEL_HOST_FILTER: $static_host" >&2
+    exit 78
+  fi
+
+  if ! ensure_host_resolvable "$static_host"; then
     exit 78
   fi
 
