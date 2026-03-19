@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-03-18-stream-simple-v15-quick-only-minimal"
+SCRIPT_VERSION="2026-03-18-stream-simple-v16-trigger-refresh"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -17,6 +17,8 @@ SCRIPT_VERSION="2026-03-18-stream-simple-v15-quick-only-minimal"
 #   SKIP_KV_UPDATE=true
 #   RATE_LIMIT_COOLDOWN_SECONDS=300
 #   NORMAL_RETRY_SECONDS=5
+#   WORKER_REFRESH_URL=https://<worker-url>/_edge/refresh
+#   WORKER_REFRESH_TOKEN=<same-as-worker-cache-refresh-token>
 
 LOG_DIR=${LOG_DIR:-/var/log/work-time}
 mkdir -p "$LOG_DIR"
@@ -33,6 +35,8 @@ CLEAR_KV_ON_429=${CLEAR_KV_ON_429:-false}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
 NORMAL_RETRY_SECONDS=${NORMAL_RETRY_SECONDS:-5}
+WORKER_REFRESH_URL=${WORKER_REFRESH_URL:-}
+WORKER_REFRESH_TOKEN=${WORKER_REFRESH_TOKEN:-}
 
 echo "[INFO] cloudflared-kv-updater start version=${SCRIPT_VERSION} user=$(id -un)" >&2
 
@@ -141,6 +145,19 @@ clear_active_kv() {
   kv_delete_key "$KV_UPDATED_AT_KEY"
 }
 
+notify_worker_refresh() {
+  [[ -z "$WORKER_REFRESH_URL" || -z "$WORKER_REFRESH_TOKEN" ]] && return 0
+
+  local http
+  http=$(curl -sS -o /dev/null -w '%{http_code}'     -X POST "$WORKER_REFRESH_URL"     -H "Authorization: Bearer ${WORKER_REFRESH_TOKEN}" || true)
+
+  if [[ "$http" != "200" ]]; then
+    echo "[WARN] Worker cache refresh notify failed http=${http} url=${WORKER_REFRESH_URL}" >&2
+  else
+    echo "[INFO] Worker cache refresh notified" >&2
+  fi
+}
+
 put_and_verify_kv() {
   local url="$1"
   [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
@@ -161,6 +178,7 @@ put_and_verify_kv() {
     return 1
   fi
   echo "[INFO] KV key '${KV_KEY}' updated and verified" >&2
+  notify_worker_refresh
   return 0
 }
 

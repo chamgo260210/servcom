@@ -133,3 +133,10 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 - **권장 기본값:** KV 단일 저장소 + Worker 메모리 캐시(`ACTIVE_URL_CACHE_TTL_SECONDS`)
 - D1 단독/병행은 가능하지만, 현재 시나리오(활성 URL 1개 저장)에서는 이점보다 복잡도가 커질 수 있습니다.
 - write 최소화 목표라면 "URL 변경 시점에만 updater가 KV PUT" 구조가 가장 단순합니다.
+
+### I. 트리거식 캐시 무효화(루프 조회 축소)
+
+- Worker `ACTIVE_URL_CACHE_TTL_SECONDS`를 길게(예: 3600) 설정
+- updater `.env`에 `WORKER_REFRESH_URL`, `WORKER_REFRESH_TOKEN` 설정
+- URL이 실제 변경되어 KV가 갱신되면 updater가 `/_edge/refresh`를 호출
+- 결과적으로 Worker의 KV 재조회는 TTL 만료 또는 캐시 무효화 시점에만 발생

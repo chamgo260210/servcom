@@ -4,8 +4,17 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    const cacheTtlSeconds = Number(env.ACTIVE_URL_CACHE_TTL_SECONDS || '30');
+    const cacheTtlSeconds = Number(env.ACTIVE_URL_CACHE_TTL_SECONDS || '3600');
     const cacheEnabled = cacheTtlSeconds > 0;
+
+    // Trigger-style cache refresh endpoint
+    if (url.pathname === '/_edge/refresh') {
+      if (!isRefreshAuthorized(request, env)) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      delete globalThis[ACTIVE_CACHE_KEY];
+      return Response.json({ ok: true, cache_cleared: true }, { status: 200 });
+    }
 
     const state = await resolveActiveState(env, { cacheEnabled, cacheTtlSeconds });
 
@@ -49,6 +58,17 @@ export default {
     );
   },
 };
+
+function isRefreshAuthorized(request, env) {
+  const token = env.CACHE_REFRESH_TOKEN || '';
+  if (!token) return false;
+
+  const auth = request.headers.get('authorization') || '';
+  if (auth === `Bearer ${token}`) return true;
+
+  const url = new URL(request.url);
+  return url.searchParams.get('token') === token;
+}
 
 async function resolveActiveState(env, { cacheEnabled, cacheTtlSeconds }) {
   if (cacheEnabled) {
