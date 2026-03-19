@@ -493,7 +493,7 @@ curl -i http://127.0.0.1:8080/health
 4. Worker Settings > Variables에서 추가:
    - `ALLOWED_TUNNEL_HOSTS=trycloudflare.com,cfargotunnel.com`
    - `DENIED_TUNNEL_HOSTS=api.trycloudflare.com`
-   - `MAX_ACTIVE_URL_AGE_SECONDS=1800` (권장, stale URL 차단)
+   - `MAX_ACTIVE_URL_AGE_SECONDS=0` (권장: quick-tunnel 저쓰기 운영에서는 비활성)
    - `ACTIVE_URL_UPDATED_AT_KEY=active_url_updated_at`
    - `ACTIVE_URL_CACHE_TTL_SECONDS=3600` (권장: 장기 캐시 + 트리거 갱신)
    - `CACHE_REFRESH_TOKEN=<random-token>` (필수: 캐시 갱신 엔드포인트 보호)

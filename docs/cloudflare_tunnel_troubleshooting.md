@@ -146,3 +146,9 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 - Quick Tunnel 호스트는 발급 직후 DNS 전파 타이밍 이슈가 있을 수 있습니다.
 - 기본값은 `REQUIRE_RESOLVABLE_TUNNEL_HOST=false`로 두는 것을 권장합니다.
 - 이 값을 `true`로 두면 URL 갱신이 계속 skip되어 `active_url`이 비어 503이 날 수 있습니다.
+
+### K. stale 정책 오탐 (`age exceeds max`)
+
+- `active_url_updated_at`은 "URL이 바뀐 시점"입니다.
+- Quick Tunnel URL이 몇 시간 유지되면, URL이 정상이어도 `MAX_ACTIVE_URL_AGE_SECONDS`만 초과해서 503이 날 수 있습니다.
+- 저쓰기 운영(하루 1회 갱신 중심)에서는 `MAX_ACTIVE_URL_AGE_SECONDS=0`으로 비활성화하는 것을 권장합니다.

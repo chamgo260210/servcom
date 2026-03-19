@@ -47,7 +47,7 @@ export default {
       && state.activeAgeSeconds > state.maxActiveAgeSeconds
     ) {
       return htmlError(
-        `Tunnel endpoint is stale. age=${state.activeAgeSeconds}s exceeds max=${state.maxActiveAgeSeconds}s.`,
+        `Tunnel endpoint is stale by policy. age=${state.activeAgeSeconds}s exceeds max=${state.maxActiveAgeSeconds}s. For quick-tunnel low-write mode, set MAX_ACTIVE_URL_AGE_SECONDS=0.`,
         503,
       );
     }
