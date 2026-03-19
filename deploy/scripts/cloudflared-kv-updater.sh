@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-02-11-stream-simple-v9"
+SCRIPT_VERSION="2026-03-19-stream-simple-v17-trigger-refresh"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
 # Optional:
 #   LOCAL_URL=http://127.0.0.1:8080
 #   TUNNEL_HOST_FILTER=trycloudflare.com,cfargotunnel.com
+#   TUNNEL_HOST_DENY=api.trycloudflare.com
 #   KV_KEY=active_url
+#   KV_UPDATED_AT_KEY=active_url_updated_at
 #   KV_CLEANUP_KEYS=active_url,ACTIVE_URL
+#   SANITIZE_EXISTING_KV=false
+#   CLEAR_KV_ON_429=false
 #   SKIP_KV_UPDATE=true
 #   RATE_LIMIT_COOLDOWN_SECONDS=300
 #   NORMAL_RETRY_SECONDS=5
-# Named Tunnel fallback:
-#   CLOUDFLARED_TUNNEL_TOKEN=...
-#   STATIC_TUNNEL_URL=https://your-tunnel-host.example.com
+#   WORKER_REFRESH_URL=https://<worker-url>/_edge/refresh
+#   WORKER_REFRESH_TOKEN=<same-as-worker-cache-refresh-token>
+#   REQUIRE_RESOLVABLE_TUNNEL_HOST=false
 
 LOG_DIR=${LOG_DIR:-/var/log/work-time}
 mkdir -p "$LOG_DIR"
@@ -23,13 +27,18 @@ CLOUDFLARED_LOG="$LOG_DIR/cloudflared.log"
 
 LOCAL_URL=${LOCAL_URL:-http://127.0.0.1:8080}
 TUNNEL_HOST_FILTER=${TUNNEL_HOST_FILTER:-trycloudflare.com,cfargotunnel.com}
+TUNNEL_HOST_DENY=${TUNNEL_HOST_DENY:-api.trycloudflare.com}
 KV_KEY=${KV_KEY:-active_url}
+KV_UPDATED_AT_KEY=${KV_UPDATED_AT_KEY:-active_url_updated_at}
 KV_CLEANUP_KEYS=${KV_CLEANUP_KEYS:-active_url,ACTIVE_URL}
+SANITIZE_EXISTING_KV=${SANITIZE_EXISTING_KV:-false}
+CLEAR_KV_ON_429=${CLEAR_KV_ON_429:-false}
 SKIP_KV_UPDATE=${SKIP_KV_UPDATE:-false}
 RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
 NORMAL_RETRY_SECONDS=${NORMAL_RETRY_SECONDS:-5}
-CLOUDFLARED_TUNNEL_TOKEN=${CLOUDFLARED_TUNNEL_TOKEN:-}
-STATIC_TUNNEL_URL=${STATIC_TUNNEL_URL:-}
+WORKER_REFRESH_URL=${WORKER_REFRESH_URL:-}
+WORKER_REFRESH_TOKEN=${WORKER_REFRESH_TOKEN:-}
+REQUIRE_RESOLVABLE_TUNNEL_HOST=${REQUIRE_RESOLVABLE_TUNNEL_HOST:-false}
 
 echo "[INFO] cloudflared-kv-updater start version=${SCRIPT_VERSION} user=$(id -un)" >&2
 
@@ -43,11 +52,6 @@ if [[ "${#missing_vars[@]}" -gt 0 && "${SKIP_KV_UPDATE,,}" != "true" ]]; then
   exit 78
 fi
 
-if [[ -n "$CLOUDFLARED_TUNNEL_TOKEN" && -z "$STATIC_TUNNEL_URL" ]]; then
-  echo "[ERROR] CLOUDFLARED_TUNNEL_TOKEN is set but STATIC_TUNNEL_URL is empty" >&2
-  exit 78
-fi
-
 allowed_host() {
   local host="$1"
   IFS=',' read -ra filters <<<"$TUNNEL_HOST_FILTER"
@@ -55,6 +59,17 @@ allowed_host() {
     filter=$(echo "$filter" | xargs)
     [[ -z "$filter" ]] && continue
     [[ "$host" == "$filter" || "$host" == *".${filter}" ]] && return 0
+  done
+  return 1
+}
+
+denied_host() {
+  local host="$1"
+  IFS=',' read -ra denied <<<"$TUNNEL_HOST_DENY"
+  for deny in "${denied[@]}"; do
+    deny=$(echo "$deny" | xargs)
+    [[ -z "$deny" ]] && continue
+    [[ "${host,,}" == "${deny,,}" ]] && return 0
   done
   return 1
 }
@@ -101,6 +116,11 @@ kv_delete_key() {
   esac
 }
 
+ensure_host_resolvable() {
+  local host="$1"
+  getent hosts "$host" >/dev/null 2>&1
+}
+
 sanitize_existing_kv() {
   [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
   IFS=',' read -ra keys <<<"$KV_CLEANUP_KEYS"
@@ -112,18 +132,47 @@ sanitize_existing_kv() {
     [[ -z "$current" ]] && continue
     local host
     host=$(extract_host "$current")
-    if ! allowed_host "$host"; then
+    if ! allowed_host "$host" || denied_host "$host"; then
       echo "[WARN] Found polluted KV value ($current). Deleting key ${key}." >&2
       kv_delete_key "$key"
     fi
   done
 }
 
+clear_active_kv() {
+  local reason="$1"
+  [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
+  echo "[WARN] Clearing active tunnel KV due to: ${reason}" >&2
+  kv_delete_key "$KV_KEY"
+  kv_delete_key "$KV_UPDATED_AT_KEY"
+}
+
+notify_worker_refresh() {
+  [[ -z "$WORKER_REFRESH_URL" || -z "$WORKER_REFRESH_TOKEN" ]] && return 0
+
+  local http
+  http=$(curl -sS -o /dev/null -w '%{http_code}'     -X POST "$WORKER_REFRESH_URL"     -H "Authorization: Bearer ${WORKER_REFRESH_TOKEN}" || true)
+
+  if [[ "$http" != "200" ]]; then
+    echo "[WARN] Worker cache refresh notify failed http=${http} url=${WORKER_REFRESH_URL}" >&2
+  else
+    echo "[INFO] Worker cache refresh notified" >&2
+  fi
+}
+
 put_and_verify_kv() {
   local url="$1"
   [[ "${SKIP_KV_UPDATE,,}" == "true" ]] && return 0
 
+  local current
+  current=$(kv_get_key "$KV_KEY")
+  if [[ "$current" == "$url" ]]; then
+    echo "[INFO] KV key '${KV_KEY}' already up-to-date; skip PUT" >&2
+    return 0
+  fi
+
   kv_put_key "$KV_KEY" "$url"
+  kv_put_key "$KV_UPDATED_AT_KEY" "$(date +%s)"
   local readback
   readback=$(kv_get_key "$KV_KEY")
   if [[ "$readback" != "$url" ]]; then
@@ -131,27 +180,8 @@ put_and_verify_kv() {
     return 1
   fi
   echo "[INFO] KV key '${KV_KEY}' updated and verified" >&2
+  notify_worker_refresh
   return 0
-}
-
-run_named_tunnel_loop() {
-  local static_host
-  static_host=$(extract_host "$STATIC_TUNNEL_URL")
-  if ! allowed_host "$static_host"; then
-    echo "[ERROR] STATIC_TUNNEL_URL host is not allowed by TUNNEL_HOST_FILTER: $static_host" >&2
-    exit 78
-  fi
-
-  while true; do
-    sanitize_existing_kv
-    put_and_verify_kv "$STATIC_TUNNEL_URL" || { sleep 10; continue; }
-
-    : >"$CLOUDFLARED_LOG"
-    echo "[INFO] cloudflared named-tunnel start" >&2
-    cloudflared tunnel run --token "$CLOUDFLARED_TUNNEL_TOKEN" --no-autoupdate 2>&1 | tee -a "$CLOUDFLARED_LOG"
-    echo "[WARN] named tunnel exited; retry in ${NORMAL_RETRY_SECONDS}s" >&2
-    sleep "$NORMAL_RETRY_SECONDS"
-  done
 }
 
 run_quick_tunnel_stream_once() {
@@ -176,7 +206,12 @@ run_quick_tunnel_stream_once() {
 
     local host
     host=$(extract_host "$url")
-    if ! allowed_host "$host"; then
+    if ! allowed_host "$host" || denied_host "$host"; then
+      continue
+    fi
+
+    if [[ "${REQUIRE_RESOLVABLE_TUNNEL_HOST,,}" == "true" ]] && ! ensure_host_resolvable "$host"; then
+      echo "[WARN] Discovered URL host is not resolvable yet. skip url=${url}" >&2
       continue
     fi
 
@@ -195,13 +230,10 @@ run_quick_tunnel_stream_once() {
   return 1
 }
 
-if [[ -n "$CLOUDFLARED_TUNNEL_TOKEN" ]]; then
-  echo "[INFO] named tunnel mode enabled (token present)." >&2
-  run_named_tunnel_loop
-fi
-
 while true; do
-  sanitize_existing_kv
+  if [[ "${SANITIZE_EXISTING_KV,,}" == "true" ]]; then
+    sanitize_existing_kv
+  fi
   if run_quick_tunnel_stream_once; then
     echo "[WARN] quick tunnel process ended; retry in ${NORMAL_RETRY_SECONDS}s" >&2
     sleep "$NORMAL_RETRY_SECONDS"
@@ -211,6 +243,9 @@ while true; do
   rc=$?
   if [[ "$rc" -eq 79 ]]; then
     echo "[WARN] Quick Tunnel rate-limited (429). cooldown ${RATE_LIMIT_COOLDOWN_SECONDS}s" >&2
+    if [[ "${CLEAR_KV_ON_429,,}" == "true" ]]; then
+      clear_active_kv "quick tunnel rate-limited (429)"
+    fi
     sleep "$RATE_LIMIT_COOLDOWN_SECONDS"
   else
     echo "[WARN] quick tunnel ended without valid URL. retry in ${NORMAL_RETRY_SECONDS}s" >&2
