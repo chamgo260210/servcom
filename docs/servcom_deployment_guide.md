@@ -327,6 +327,7 @@ RATE_LIMIT_COOLDOWN_SECONDS=300
 NORMAL_RETRY_SECONDS=5
 WORKER_REFRESH_URL=https://<worker-url>/_edge/refresh
 WORKER_REFRESH_TOKEN=<worker-cache-refresh-token>
+REQUIRE_RESOLVABLE_TUNNEL_HOST=false
 LOCAL_URL=http://127.0.0.1:8080
 LOG_DIR=/var/log/work-time
 # true면 KV 업데이트 없이 터널만 실행(디버깅용)

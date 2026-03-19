@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_VERSION="2026-03-18-stream-simple-v16-trigger-refresh"
+SCRIPT_VERSION="2026-03-19-stream-simple-v17-trigger-refresh"
 
 # Usage:
 #   CF_ACCOUNT_ID=... CF_API_TOKEN=... CF_KV_NAMESPACE_ID=... ./cloudflared-kv-updater.sh
@@ -19,6 +19,7 @@ SCRIPT_VERSION="2026-03-18-stream-simple-v16-trigger-refresh"
 #   NORMAL_RETRY_SECONDS=5
 #   WORKER_REFRESH_URL=https://<worker-url>/_edge/refresh
 #   WORKER_REFRESH_TOKEN=<same-as-worker-cache-refresh-token>
+#   REQUIRE_RESOLVABLE_TUNNEL_HOST=false
 
 LOG_DIR=${LOG_DIR:-/var/log/work-time}
 mkdir -p "$LOG_DIR"
@@ -37,6 +38,7 @@ RATE_LIMIT_COOLDOWN_SECONDS=${RATE_LIMIT_COOLDOWN_SECONDS:-300}
 NORMAL_RETRY_SECONDS=${NORMAL_RETRY_SECONDS:-5}
 WORKER_REFRESH_URL=${WORKER_REFRESH_URL:-}
 WORKER_REFRESH_TOKEN=${WORKER_REFRESH_TOKEN:-}
+REQUIRE_RESOLVABLE_TUNNEL_HOST=${REQUIRE_RESOLVABLE_TUNNEL_HOST:-false}
 
 echo "[INFO] cloudflared-kv-updater start version=${SCRIPT_VERSION} user=$(id -un)" >&2
 
@@ -208,7 +210,7 @@ run_quick_tunnel_stream_once() {
       continue
     fi
 
-    if ! ensure_host_resolvable "$host"; then
+    if [[ "${REQUIRE_RESOLVABLE_TUNNEL_HOST,,}" == "true" ]] && ! ensure_host_resolvable "$host"; then
       echo "[WARN] Discovered URL host is not resolvable yet. skip url=${url}" >&2
       continue
     fi

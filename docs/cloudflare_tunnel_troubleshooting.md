@@ -140,3 +140,9 @@ journalctl -u work-time-cloudflared -n 120 --no-pager
 - updater `.env`에 `WORKER_REFRESH_URL`, `WORKER_REFRESH_TOKEN` 설정
 - URL이 실제 변경되어 KV가 갱신되면 updater가 `/_edge/refresh`를 호출
 - 결과적으로 Worker의 KV 재조회는 TTL 만료 또는 캐시 무효화 시점에만 발생
+
+### J. "Discovered URL host is not resolvable yet" 경고가 반복되는 경우
+
+- Quick Tunnel 호스트는 발급 직후 DNS 전파 타이밍 이슈가 있을 수 있습니다.
+- 기본값은 `REQUIRE_RESOLVABLE_TUNNEL_HOST=false`로 두는 것을 권장합니다.
+- 이 값을 `true`로 두면 URL 갱신이 계속 skip되어 `active_url`이 비어 503이 날 수 있습니다.
