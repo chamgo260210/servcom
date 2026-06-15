@@ -97,6 +97,28 @@ if (!globalThis.__worktimeLayout) {
     });
   }
 
+  function ensureDataManagementNavLink() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar || sidebar.querySelector('.nav-link[data-page="data-management"]')) return;
+    const link = document.createElement('a');
+    link.className = 'nav-link';
+    link.dataset.page = 'data-management';
+    link.dataset.minRole = 'OPERATOR';
+    link.href = window.location.pathname.includes('/html/') || window.location.pathname.includes('/mobile/')
+      ? '../data_management.html'
+      : 'data_management.html';
+    link.textContent = '데이터 관리';
+    const historyLink = sidebar.querySelector('.nav-link[data-page="history"]');
+    const divider = sidebar.querySelector('.nav-divider');
+    if (historyLink) {
+      historyLink.insertAdjacentElement('afterend', link);
+    } else if (divider) {
+      sidebar.insertBefore(link, divider);
+    } else {
+      sidebar.appendChild(link);
+    }
+  }
+
   function isLinkAllowed(link, role) {
     const allowedRoles = (link.dataset.roles || '')
       .split(',')
@@ -196,6 +218,7 @@ if (!globalThis.__worktimeLayout) {
   async function initAppLayout(activePage) {
     initThemeToggle();
     showAppShellLoader();
+    ensureDataManagementNavLink();
     highlightNav(activePage);
     setupSidebar();
     wireCommonActions();

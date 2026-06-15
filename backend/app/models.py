@@ -14,6 +14,7 @@ from sqlalchemy import (
     JSON,
     text,
     Integer,
+    BigInteger,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
@@ -353,6 +354,52 @@ class AuditLog(Base):
         nullable=False,
         default=datetime.utcnow,
     )
+
+
+class DataBackup(Base):
+    __tablename__ = "data_backups"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    domain = Column(String, nullable=False)
+    backup_type = Column(String, nullable=False, default="JSON", server_default=text("'JSON'"))
+    file_name = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)
+    file_size = Column(BigInteger)
+    checksum = Column(String)
+    schema_version = Column(String, nullable=False, default="1.0.0", server_default=text("'1.0.0'"))
+    status = Column(String, nullable=False, default="READY", server_default=text("'READY'"))
+    description = Column(String)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    deleted_at = Column(DateTime(timezone=True))
+
+    creator = relationship("User")
+
+
+class DataRestoreJob(Base):
+    __tablename__ = "data_restore_jobs"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("uuid_generate_v4()"),
+    )
+    backup_id = Column(UUID(as_uuid=True), ForeignKey("data_backups.id"))
+    domain = Column(String, nullable=False)
+    mode = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime(timezone=True))
+    error_message = Column(String)
+    summary = Column(JSONB)
+
+    backup = relationship("DataBackup")
+    requester = relationship("User")
 
 
 class Notice(Base):

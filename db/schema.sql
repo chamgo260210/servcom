@@ -111,6 +111,41 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
 
+CREATE TABLE IF NOT EXISTS data_backups (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    domain TEXT NOT NULL,
+    backup_type TEXT NOT NULL DEFAULT 'JSON',
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size BIGINT,
+    checksum TEXT,
+    schema_version TEXT NOT NULL DEFAULT '1.0.0',
+    status TEXT NOT NULL DEFAULT 'READY',
+    description TEXT,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_data_backups_domain ON data_backups(domain);
+CREATE INDEX IF NOT EXISTS idx_data_backups_created ON data_backups(created_at);
+CREATE INDEX IF NOT EXISTS idx_data_backups_deleted ON data_backups(deleted_at);
+
+CREATE TABLE IF NOT EXISTS data_restore_jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    backup_id UUID REFERENCES data_backups(id),
+    domain TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    requested_by UUID REFERENCES users(id),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ,
+    error_message TEXT,
+    summary JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_data_restore_jobs_backup ON data_restore_jobs(backup_id);
+CREATE INDEX IF NOT EXISTS idx_data_restore_jobs_requested ON data_restore_jobs(requested_by);
+CREATE INDEX IF NOT EXISTS idx_data_restore_jobs_started ON data_restore_jobs(started_at);
+
 CREATE TABLE IF NOT EXISTS notices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     title TEXT NOT NULL,

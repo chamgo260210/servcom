@@ -189,6 +189,57 @@ class AuditLogOut(BaseModel):
     created_at: datetime
 
 
+class DataBackupCreate(BaseModel):
+    domain: str
+    description: str | None = None
+
+
+class DataBackupOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    domain: str
+    backup_type: str
+    file_name: str
+    file_size: int | None = None
+    checksum: str | None = None
+    schema_version: str
+    status: str
+    description: str | None = None
+    created_by: UUID | None = None
+    created_at: datetime
+    deleted_at: datetime | None = None
+
+
+class DataRestoreJobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    backup_id: UUID | None = None
+    domain: str
+    mode: str
+    status: str
+    requested_by: UUID | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    summary: dict | None = None
+
+
+class BackupValidationResult(BaseModel):
+    valid: bool
+    domain: str | None = None
+    schema_version: str | None = None
+    summary: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class BackupRestoreRequest(BaseModel):
+    mode: str
+    confirm_text: str
+
+
 class HistoryEntry(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
