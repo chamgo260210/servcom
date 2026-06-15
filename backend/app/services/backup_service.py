@@ -82,6 +82,19 @@ def _collect_table_data(db: Session, table_name: str, *, domain: str) -> list[di
     return [_row_to_dict(row, include_columns=include_columns) for row in rows]
 
 
+def _storage_subdir(domain: str, kind: str) -> Path:
+    kind = (kind or "MANUAL").strip().upper()
+    if domain == "FULL":
+        return Path("system") / "full"
+    if domain == "WORK":
+        return Path("work") / ("restore_points" if kind == "RESTORE_POINT" else "manual")
+    if domain == "VISITORS":
+        return Path("visitors") / ("restore_points" if kind == "RESTORE_POINT" else "manual")
+    if domain == "SERIALS":
+        return Path("serials") / ("restore_points" if kind == "RESTORE_POINT" else "manual")
+    return Path(".")
+
+
 def build_backup_payload(
     db: Session,
     *,
@@ -89,6 +102,7 @@ def build_backup_payload(
     current_user: models.User,
     description: str | None = None,
     created_at: datetime | None = None,
+    kind: str = "MANUAL",
 ) -> dict:
     domain = normalize_domain(domain)
     if domain not in BACKUP_DOMAINS:
@@ -104,6 +118,7 @@ def build_backup_payload(
             "role": current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
         },
         "description": description,
+        "kind": (kind or "MANUAL").strip().upper(),
     }
     data = {table_name: _collect_table_data(db, table_name, domain=domain) for table_name in _backup_tables_for_domain(domain)}
     checksum = calculate_checksum(meta, data)
@@ -124,15 +139,24 @@ def create_json_backup(
     current_user: models.User,
     description: str | None = None,
     file_name: str | None = None,
+    kind: str = "MANUAL",
 ) -> models.DataBackup:
     domain = normalize_domain(domain)
+    kind = (kind or "MANUAL").strip().upper()
     if domain not in BACKUP_DOMAINS:
         raise ValueError("unsupported_domain")
 
     created_at = datetime.now(timezone.utc)
-    payload = build_backup_payload(db, domain=domain, current_user=current_user, description=description, created_at=created_at)
+    payload = build_backup_payload(
+        db,
+        domain=domain,
+        current_user=current_user,
+        description=description,
+        created_at=created_at,
+        kind=kind,
+    )
 
-    storage_dir = Path(get_settings().BACKUP_STORAGE_DIR)
+    storage_dir = Path(get_settings().BACKUP_STORAGE_DIR) / _storage_subdir(domain, kind)
     storage_dir.mkdir(parents=True, exist_ok=True)
     stamp = created_at.strftime("%Y%m%d_%H%M%S")
     file_name = file_name or f"{domain.lower()}_backup_{stamp}.json"
@@ -142,6 +166,7 @@ def create_json_backup(
     backup = models.DataBackup(
         domain=domain,
         backup_type="JSON",
+        kind=kind,
         file_name=file_name,
         file_path=str(file_path),
         file_size=file_path.stat().st_size,

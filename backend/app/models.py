@@ -366,6 +366,7 @@ class DataBackup(Base):
     )
     domain = Column(String, nullable=False)
     backup_type = Column(String, nullable=False, default="JSON", server_default=text("'JSON'"))
+    kind = Column(String, nullable=False, default="MANUAL", server_default=text("'MANUAL'"))
     file_name = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
     file_size = Column(BigInteger)

@@ -56,11 +56,16 @@ function renderBackups(backups) {
     const createdAt = backup.created_at ? new Date(backup.created_at).toLocaleString('ko-KR') : '-';
     const isMaster = currentUser?.role === 'MASTER';
     const validation = validationState.get(backup.id);
-    const restoreButton = isMaster
-      ? `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`
+    const canManageBackup = backup.domain !== 'FULL' || isMaster;
+    const canDownloadBackup = backup.domain === 'VISITORS' || backup.domain === 'SERIALS';
+    const downloadButton = canDownloadBackup
+      ? `<button class="btn tiny secondary" type="button" data-download="${backup.id}">다운로드</button>`
       : '';
-    const sanitizedButton = isMaster && backup.domain === 'FULL'
-      ? `<button class="btn tiny secondary" type="button" data-sanitized-download="${backup.id}">민감정보 제외</button>`
+    const validateButton = canManageBackup
+      ? `<button class="btn tiny secondary" type="button" data-validate="${backup.id}">검증</button>`
+      : '';
+    const restoreButton = canManageBackup
+      ? `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`
       : '';
     const deleteButton = isMaster
       ? `<button class="btn tiny muted" type="button" data-delete="${backup.id}">삭제</button>`
@@ -72,10 +77,9 @@ function renderBackups(backups) {
       <td>${createdAt}</td>
       <td>${backup.status}</td>
       <td>
-        <button class="btn tiny secondary" type="button" data-download="${backup.id}">다운로드</button>
-        <button class="btn tiny secondary" type="button" data-validate="${backup.id}">검증</button>
+        ${downloadButton}
+        ${validateButton}
         ${restoreButton}
-        ${sanitizedButton}
         ${deleteButton}
       </td>
     `;
@@ -106,7 +110,7 @@ function renderUploadValidation(result) {
   if (result.warnings?.length) lines.push(`경고: ${result.warnings.join(' / ')}`);
   setMessage(uploadMessage, lines.join('\n'), !result.valid);
   if (uploadRestoreButton) {
-    uploadRestoreButton.disabled = !(currentUser?.role === 'MASTER' && result.valid);
+    uploadRestoreButton.disabled = !(currentUser?.role !== 'MEMBER' && result.valid);
   }
 }
 
@@ -189,11 +193,16 @@ async function exportSerials() {
 }
 
 currentUser = await initAppLayout('data-management');
-if (currentUser?.role === 'MASTER' && uploadRestoreButton) {
+if (currentUser?.role !== 'MEMBER' && uploadRestoreButton) {
   uploadRestoreButton.style.display = '';
 }
 if (currentUser?.role === 'MASTER') {
   document.querySelectorAll('#backup-domain [data-master-only]').forEach((option) => {
+    option.hidden = false;
+  });
+}
+if (currentUser?.role !== 'MEMBER') {
+  document.querySelectorAll('#backup-domain [data-operator-only]').forEach((option) => {
     option.hidden = false;
   });
 }
@@ -262,7 +271,7 @@ uploadRestoreButton?.addEventListener('click', async () => {
   } catch (e) {
     setMessage(uploadMessage, e.message || '업로드 복원에 실패했습니다.', true);
   } finally {
-    uploadRestoreButton.disabled = !(currentUser?.role === 'MASTER' && lastUploadValidation?.valid);
+    uploadRestoreButton.disabled = !(currentUser?.role !== 'MEMBER' && lastUploadValidation?.valid);
   }
 });
 backupList?.addEventListener('click', async (event) => {

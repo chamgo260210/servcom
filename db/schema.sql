@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS data_backups (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     domain TEXT NOT NULL,
     backup_type TEXT NOT NULL DEFAULT 'JSON',
+    kind TEXT NOT NULL DEFAULT 'MANUAL',
     file_name TEXT NOT NULL,
     file_path TEXT NOT NULL,
     file_size BIGINT,
@@ -127,6 +128,7 @@ CREATE TABLE IF NOT EXISTS data_backups (
     deleted_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_data_backups_domain ON data_backups(domain);
+CREATE INDEX IF NOT EXISTS idx_data_backups_kind ON data_backups(kind);
 CREATE INDEX IF NOT EXISTS idx_data_backups_created ON data_backups(created_at);
 CREATE INDEX IF NOT EXISTS idx_data_backups_deleted ON data_backups(deleted_at);
 

@@ -200,6 +200,7 @@ class DataBackupOut(BaseModel):
     id: UUID
     domain: str
     backup_type: str
+    kind: str = "MANUAL"
     file_name: str
     file_size: int | None = None
     checksum: str | None = None

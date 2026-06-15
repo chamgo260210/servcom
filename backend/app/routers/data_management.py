@@ -12,7 +12,7 @@ from starlette.background import BackgroundTask
 
 from .. import models, schemas
 from ..core.audit import record_log
-from ..core.backup_manifest import BACKUP_DOMAINS, PHASE1_REJECTED_DOMAINS, SUPPORTED_DOMAINS
+from ..core.backup_manifest import BACKUP_DOMAINS, PHASE1_REJECTED_DOMAINS
 from ..config import get_settings
 from ..deps import get_db
 from ..core.roles import require_role
@@ -84,9 +84,12 @@ def list_backups(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
-    query = db.query(models.DataBackup).filter(models.DataBackup.deleted_at.is_(None))
+    query = db.query(models.DataBackup).filter(
+        models.DataBackup.deleted_at.is_(None),
+        models.DataBackup.kind != "RESTORE_POINT",
+    )
     if current_user.role != models.UserRole.MASTER:
-        query = query.filter(models.DataBackup.domain.in_(("VISITORS", "SERIALS")))
+        query = query.filter(models.DataBackup.domain.in_(("VISITORS", "SERIALS", "WORK")))
     return query.order_by(models.DataBackup.created_at.desc()).all()
 
 
@@ -97,7 +100,7 @@ def create_backup(
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     domain = _reject_unsupported_domain(payload.domain)
-    if domain in {"FULL", "WORK"} and current_user.role != models.UserRole.MASTER:
+    if domain == "FULL" and current_user.role != models.UserRole.MASTER:
         raise HTTPException(status_code=403, detail="Only masters can create this backup")
     try:
         backup = create_json_backup(
@@ -139,7 +142,7 @@ async def restore_uploaded_backup_endpoint(
     file: UploadFile = File(...),
     confirm_text: str = Form(...),
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(models.UserRole.MASTER)),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     if confirm_text != "복원합니다":
         raise HTTPException(status_code=400, detail="Invalid restore confirmation text")
@@ -207,8 +210,10 @@ def download_backup(
 ):
     backup = _get_backup_or_404(db, backup_id)
     domain = normalize_domain(backup.domain)
-    if domain in {"FULL", "WORK"} and current_user.role != models.UserRole.MASTER:
-        raise HTTPException(status_code=403, detail="Only masters can download this backup")
+    if backup.kind == "RESTORE_POINT":
+        raise HTTPException(status_code=403, detail="Restore points cannot be downloaded")
+    if domain in {"FULL", "WORK"}:
+        raise HTTPException(status_code=403, detail="This backup domain cannot be downloaded")
     storage_root = Path(get_settings().BACKUP_STORAGE_DIR).resolve()
     file_path = Path(backup.file_path).resolve()
     if file_path != storage_root and storage_root not in file_path.parents:
@@ -276,6 +281,9 @@ def validate_backup(
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     backup = _get_backup_or_404(db, backup_id)
+    domain = normalize_domain(backup.domain)
+    if domain == "FULL" and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail="Only masters can validate FULL backups")
     result = validate_backup_file(db, backup)
     record_log(
         db,
@@ -292,12 +300,15 @@ def restore_backup_endpoint(
     backup_id,
     payload: schemas.BackupRestoreRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(models.UserRole.MASTER)),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     backup = _get_backup_or_404(db, backup_id)
     mode = (payload.mode or "").strip().upper()
-    if normalize_domain(backup.domain) not in SUPPORTED_DOMAINS or backup.backup_type != "JSON":
-        raise HTTPException(status_code=400, detail="Only VISITORS/SERIALS JSON backups can be restored")
+    domain = normalize_domain(backup.domain)
+    if domain not in BACKUP_DOMAINS or backup.backup_type != "JSON":
+        raise HTTPException(status_code=400, detail="Only JSON backups can be restored")
+    if domain == "FULL" and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail="Only masters can restore FULL backups")
     if payload.confirm_text != "복원합니다":
         raise HTTPException(status_code=400, detail="Invalid restore confirmation text")
     if mode not in {"DRY_RUN", "REPLACE"}:
