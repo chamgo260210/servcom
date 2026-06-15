@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>연속간행물 데이터 관리</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+</head>
+
+<body class="app-loading" data-home="html/serials_home.html" data-domain="SERIALS">
+  <div id="app-shell-loader" class="app-shell-loader">
+    <div class="spinner" aria-label="로딩 중"></div>
+    <div class="muted">필요한 정보를 불러오는 중...</div>
+  </div>
+  <header class="header">
+    <div class="header-left">
+      <button class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기">☰</button>
+      <div class="logo"><img src="assets/logo.png" width="32" alt="logo" /> 연속간행물 데이터 관리</div>
+    </div>
+    <div class="header-right">
+      <div class="system-status-badge inline" id="status-card">
+        <div class="status-label">연결 상태</div>
+        <div class="system-status">
+          <span id="server-status" class="status-chip status-pending"><span class="status-dot"></span><span class="status-text">서버 확인 중</span></span>
+          <span id="db-status" class="status-chip status-pending"><span class="status-dot"></span><span class="status-text">DB 확인 중</span></span>
+        </div>
+        <div class="status-meta" id="status-meta">상태 체크 중...</div>
+      </div>
+      <button class="btn tiny muted theme-toggle" id="theme-toggle" type="button" aria-pressed="false"><span class="theme-icon">◐</span><span id="theme-label">라이트 모드</span></button>
+      <span id="session-countdown" class="status-chip session-timer"></span>
+      <button class="btn tiny secondary" id="extend-session" style="display:none;">세션 연장</button>
+      <div class="muted">안녕하세요, <span id="user-name"></span> (<span id="user-role"></span>)</div>
+      <button class="btn muted" id="logout-btn">로그아웃</button>
+    </div>
+  </header>
+  <div class="page">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-title">연속간행물</div>
+      <a class="nav-link" data-page="serials-home" href="html/serials_home.html">홈</a>
+      <a class="nav-link" data-page="serials-manage" data-min-role="OPERATOR" href="html/serials_manage.html">등록 및 수정</a>
+      <a class="nav-link" data-page="serials-layout" data-min-role="OPERATOR" href="html/serials_layout.html">배치도 관리</a>
+      <div class="nav-divider"></div>
+    </nav>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <main class="content">
+      <section class="card"><div class="card-title" id="domain-title">연속간행물 데이터</div><p class="muted" id="domain-subtitle"></p></section>
+      <div class="grid two">
+        <section class="card">
+          <div class="card-title">백업 생성</div>
+          <div class="stack">
+            <label for="backup-description">설명</label>
+            <input id="backup-description" placeholder="선택 입력" />
+            <button class="btn" id="create-backup" type="button">SERIALS 백업 생성</button>
+            <div id="backup-message" class="form-message" role="alert" aria-live="polite"></div>
+          </div>
+        </section>
+        <section class="card" id="excel-section">
+          <div class="card-title">Excel 다운로드</div>
+          <div class="stack">
+            <button class="btn secondary" id="export-excel" type="button">연속간행물 Excel</button>
+            <div id="excel-message" class="form-message" role="alert" aria-live="polite"></div>
+          </div>
+        </section>
+        <section class="card" id="upload-section">
+          <div class="card-title">JSON 파일 가져오기</div>
+          <div class="stack">
+            <input id="upload-backup-file" type="file" accept=".json,application/json" />
+            <div class="actions">
+              <button class="btn secondary" id="upload-validate" type="button">업로드 검증</button>
+              <button class="btn" id="upload-restore" type="button" disabled>업로드 복원</button>
+            </div>
+            <div id="upload-message" class="form-message" role="alert" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+      <section class="card">
+        <div class="card-title">백업 목록</div>
+        <div id="validation-result" class="form-message" role="alert" aria-live="polite"></div>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>파일명</th><th>크기</th><th>생성일</th><th>상태</th><th>설명</th><th>작업</th></tr></thead><tbody id="backup-list"><tr><td colspan="6" class="muted">불러오는 중...</td></tr></tbody></table></div>
+      </section>
+      <section class="card">
+        <div class="card-title">복원 이력 / 복원 전 지점</div>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th>모드</th><th>상태</th><th>시작</th><th>완료</th><th>Restore point</th><th>오류</th></tr></thead><tbody id="restore-list"><tr><td colspan="6" class="muted">불러오는 중...</td></tr></tbody></table></div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="js/domain_data_management.js"></script>
+</body>
+
+</html>
