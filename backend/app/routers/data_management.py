@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
 from .. import models, schemas
 from ..core.audit import record_log
-from ..core.backup_manifest import PHASE1_REJECTED_DOMAINS, SUPPORTED_DOMAINS
+from ..core.backup_manifest import BACKUP_DOMAINS, PHASE1_REJECTED_DOMAINS, SUPPORTED_DOMAINS
 from ..config import get_settings
 from ..deps import get_db
 from ..core.roles import require_role
-from ..services.backup_service import create_json_backup, normalize_domain
+from ..services.backup_service import build_sanitized_backup_payload, create_json_backup, normalize_domain
 from ..services.excel_export_service import build_serials_excel, build_visitors_excel
 from ..services.restore_service import (
     parse_backup_json_bytes,
@@ -34,7 +36,7 @@ def _reject_unsupported_domain(domain: str) -> str:
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail=f"{normalized} backup is not available in Phase 1",
         )
-    if normalized not in SUPPORTED_DOMAINS:
+    if normalized not in BACKUP_DOMAINS:
         raise HTTPException(status_code=400, detail="Unsupported backup domain")
     return normalized
 
@@ -82,12 +84,10 @@ def list_backups(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
-    return (
-        db.query(models.DataBackup)
-        .filter(models.DataBackup.deleted_at.is_(None))
-        .order_by(models.DataBackup.created_at.desc())
-        .all()
-    )
+    query = db.query(models.DataBackup).filter(models.DataBackup.deleted_at.is_(None))
+    if current_user.role != models.UserRole.MASTER:
+        query = query.filter(models.DataBackup.domain.in_(("VISITORS", "SERIALS")))
+    return query.order_by(models.DataBackup.created_at.desc()).all()
 
 
 @router.post("/backups", response_model=schemas.DataBackupOut, status_code=status.HTTP_201_CREATED)
@@ -97,6 +97,8 @@ def create_backup(
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     domain = _reject_unsupported_domain(payload.domain)
+    if domain in {"FULL", "WORK"} and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail="Only masters can create this backup")
     try:
         backup = create_json_backup(
             db,
@@ -107,7 +109,7 @@ def create_backup(
         record_log(
             db,
             actor_id=str(current_user.id),
-            action="DATA_BACKUP_CREATE",
+            action={"FULL": "DATA_BACKUP_CREATE_FULL", "WORK": "DATA_BACKUP_CREATE_WORK"}.get(domain, "DATA_BACKUP_CREATE"),
             details={"backup_id": str(backup.id), "domain": backup.domain, "file_name": backup.file_name},
         )
         db.commit()
@@ -199,16 +201,41 @@ async def restore_uploaded_backup_endpoint(
 @router.get("/backups/{backup_id}/download")
 def download_backup(
     backup_id,
+    sanitize: bool = Query(False),
     db: Session = Depends(get_db),
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     backup = _get_backup_or_404(db, backup_id)
+    domain = normalize_domain(backup.domain)
+    if domain in {"FULL", "WORK"} and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail="Only masters can download this backup")
     storage_root = Path(get_settings().BACKUP_STORAGE_DIR).resolve()
     file_path = Path(backup.file_path).resolve()
     if file_path != storage_root and storage_root not in file_path.parents:
         raise HTTPException(status_code=403, detail="Backup file is outside storage directory")
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Backup file not found")
+    if sanitize and domain != "FULL":
+        raise HTTPException(status_code=400, detail="Sanitized download is only available for FULL backups")
+    if sanitize and domain == "FULL":
+        try:
+            sanitized_payload = build_sanitized_backup_payload(file_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail="Unable to sanitize backup file") from exc
+        record_log(
+            db,
+            actor_id=str(current_user.id),
+            action="DATA_BACKUP_DOWNLOAD_SANITIZED",
+            details={"backup_id": str(backup.id), "domain": backup.domain, "file_name": backup.file_name},
+        )
+        db.commit()
+        content = json.dumps(sanitized_payload, ensure_ascii=False, indent=2).encode("utf-8")
+        filename = backup.file_name.replace(".json", "_sanitized.json")
+        return StreamingResponse(
+            BytesIO(content),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     record_log(
         db,
         actor_id=str(current_user.id),
@@ -221,6 +248,25 @@ def download_backup(
         filename=backup.file_name,
         media_type="application/json",
     )
+
+
+@router.delete("/backups/{backup_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_backup(
+    backup_id,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(models.UserRole.MASTER)),
+):
+    backup = _get_backup_or_404(db, backup_id)
+    backup.deleted_at = datetime.now(timezone.utc)
+    backup.status = "DELETED"
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="DATA_BACKUP_DELETE",
+        details={"backup_id": str(backup.id), "domain": backup.domain, "file_name": backup.file_name},
+    )
+    db.commit()
+    return None
 
 
 @router.post("/backups/{backup_id}/validate", response_model=schemas.BackupValidationResult)

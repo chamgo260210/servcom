@@ -36,6 +36,8 @@ class Settings:
         self.JWT_SECRET: str | None = os.getenv("JWT_SECRET")
         self.BACKUP_STORAGE_DIR: str = os.getenv("BACKUP_STORAGE_DIR", "/srv/app/backups")
         self.BACKUP_UPLOAD_MAX_BYTES: int = int(os.getenv("BACKUP_UPLOAD_MAX_BYTES", str(10 * 1024 * 1024)))
+        self.BACKUP_RETENTION_DAYS: int = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
+        self.BACKUP_MAX_FILES_PER_DOMAIN: int = int(os.getenv("BACKUP_MAX_FILES_PER_DOMAIN", "50"))
 
         # Reverse proxy / tunnel aware settings
         self.API_ROOT_PATH: str = os.getenv("API_ROOT_PATH", "")

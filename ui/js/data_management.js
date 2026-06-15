@@ -59,6 +59,12 @@ function renderBackups(backups) {
     const restoreButton = isMaster
       ? `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`
       : '';
+    const sanitizedButton = isMaster && backup.domain === 'FULL'
+      ? `<button class="btn tiny secondary" type="button" data-sanitized-download="${backup.id}">민감정보 제외</button>`
+      : '';
+    const deleteButton = isMaster
+      ? `<button class="btn tiny muted" type="button" data-delete="${backup.id}">삭제</button>`
+      : '';
     tr.innerHTML = `
       <td>${backup.domain}</td>
       <td>${backup.file_name}</td>
@@ -69,6 +75,8 @@ function renderBackups(backups) {
         <button class="btn tiny secondary" type="button" data-download="${backup.id}">다운로드</button>
         <button class="btn tiny secondary" type="button" data-validate="${backup.id}">검증</button>
         ${restoreButton}
+        ${sanitizedButton}
+        ${deleteButton}
       </td>
     `;
     backupList.appendChild(tr);
@@ -184,6 +192,11 @@ currentUser = await initAppLayout('data-management');
 if (currentUser?.role === 'MASTER' && uploadRestoreButton) {
   uploadRestoreButton.style.display = '';
 }
+if (currentUser?.role === 'MASTER') {
+  document.querySelectorAll('#backup-domain [data-master-only]').forEach((option) => {
+    option.hidden = false;
+  });
+}
 
 document.getElementById('create-backup')?.addEventListener('click', createBackup);
 document.getElementById('export-visitors')?.addEventListener('click', exportVisitors);
@@ -253,7 +266,7 @@ uploadRestoreButton?.addEventListener('click', async () => {
   }
 });
 backupList?.addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-download], [data-validate], [data-restore]');
+  const button = event.target.closest('[data-download], [data-sanitized-download], [data-validate], [data-restore], [data-delete]');
   if (!button) return;
   button.disabled = true;
   try {
@@ -261,6 +274,10 @@ backupList?.addEventListener('click', async (event) => {
       setMessage(backupMessage, '백업 다운로드 중...');
       await downloadFile(`/data/backups/${button.dataset.download}/download`);
       setMessage(backupMessage, '백업 다운로드를 시작했습니다.');
+    } else if (button.dataset.sanitizedDownload) {
+      setMessage(backupMessage, '민감정보 제외 백업 다운로드 중...');
+      await downloadFile(`/data/backups/${button.dataset.sanitizedDownload}/download?sanitize=true`);
+      setMessage(backupMessage, '민감정보 제외 다운로드를 시작했습니다.');
     } else if (button.dataset.validate) {
       setMessage(validationResult, '백업 검증 중...');
       const result = await apiRequest(`/data/backups/${button.dataset.validate}/validate`, { method: 'POST' });
@@ -282,6 +299,15 @@ backupList?.addEventListener('click', async (event) => {
       setMessage(validationResult, `복원 완료: ${job.status}`);
       await loadBackups();
       await loadRestoreJobs();
+    } else if (button.dataset.delete) {
+      if (!window.confirm('이 백업을 삭제 표시하시겠습니까? 실제 파일은 삭제되지 않습니다.')) {
+        return;
+      }
+      setMessage(backupMessage, '백업 삭제 처리 중...');
+      await apiRequest(`/data/backups/${button.dataset.delete}`, { method: 'DELETE' });
+      setMessage(backupMessage, '백업이 삭제 처리되었습니다.');
+      validationState.delete(button.dataset.delete);
+      await loadBackups();
     }
   } catch (e) {
     setMessage(validationResult, e.message || '요청 처리에 실패했습니다.', true);

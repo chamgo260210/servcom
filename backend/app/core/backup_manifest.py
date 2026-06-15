@@ -9,7 +9,8 @@ from uuid import UUID
 
 SCHEMA_VERSION = "1.0.0"
 SUPPORTED_DOMAINS = {"VISITORS", "SERIALS"}
-PHASE1_REJECTED_DOMAINS = {"FULL", "WORK"}
+BACKUP_DOMAINS = {"VISITORS", "SERIALS", "FULL", "WORK"}
+PHASE1_REJECTED_DOMAINS = set()
 
 VISITOR_TABLES = [
     "visitor_school_years",
@@ -26,6 +27,27 @@ SERIAL_TABLES = [
     "serial_shelf_types",
     "serial_shelves",
     "serial_publications",
+]
+
+FULL_TABLES = [
+    "users",
+    "auth_accounts",
+    "shifts",
+    "user_shifts",
+    "shift_requests",
+    "notices",
+    "notice_targets",
+    "notice_reads",
+    *VISITOR_TABLES,
+    *SERIAL_TABLES,
+]
+
+WORK_TABLES = [
+    "users",
+    "shifts",
+    "user_shifts",
+    "shift_requests",
+    "audit_logs",
 ]
 
 
