@@ -81,6 +81,7 @@ async def _read_uploaded_json(file: UploadFile | None) -> dict:
 
 @router.get("/backups", response_model=list[schemas.DataBackupOut])
 def list_backups(
+    domain: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
@@ -88,6 +89,13 @@ def list_backups(
         models.DataBackup.deleted_at.is_(None),
         models.DataBackup.kind != "RESTORE_POINT",
     )
+    if domain:
+        requested_domain = normalize_domain(domain)
+        if requested_domain not in BACKUP_DOMAINS:
+            raise HTTPException(status_code=400, detail="Unsupported backup domain")
+        if requested_domain == "FULL" and current_user.role != models.UserRole.MASTER:
+            raise HTTPException(status_code=403, detail="Only masters can view FULL backups")
+        query = query.filter(models.DataBackup.domain == requested_domain)
     if current_user.role != models.UserRole.MASTER:
         query = query.filter(models.DataBackup.domain.in_(("VISITORS", "SERIALS", "WORK")))
     return query.order_by(models.DataBackup.created_at.desc()).all()
@@ -370,10 +378,21 @@ def restore_backup_endpoint(
 
 @router.get("/restores", response_model=list[schemas.DataRestoreJobOut])
 def list_restore_jobs(
+    domain: str | None = Query(None),
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(models.UserRole.MASTER)),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
-    return db.query(models.DataRestoreJob).order_by(models.DataRestoreJob.started_at.desc()).limit(100).all()
+    query = db.query(models.DataRestoreJob)
+    if domain:
+        requested_domain = normalize_domain(domain)
+        if requested_domain not in BACKUP_DOMAINS:
+            raise HTTPException(status_code=400, detail="Unsupported backup domain")
+        if requested_domain == "FULL" and current_user.role != models.UserRole.MASTER:
+            raise HTTPException(status_code=403, detail="Only masters can view FULL restore history")
+        query = query.filter(models.DataRestoreJob.domain == requested_domain)
+    if current_user.role != models.UserRole.MASTER:
+        query = query.filter(models.DataRestoreJob.domain.in_(("VISITORS", "SERIALS", "WORK")))
+    return query.order_by(models.DataRestoreJob.started_at.desc()).limit(100).all()
 
 
 @router.get("/exports/visitors/excel")

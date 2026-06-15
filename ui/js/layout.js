@@ -99,24 +99,37 @@ if (!globalThis.__worktimeLayout) {
 
   function ensureDataManagementNavLink() {
     const sidebar = document.getElementById('sidebar');
-    if (!sidebar || sidebar.querySelector('.nav-link[data-page="data-management"]')) return;
-    const link = document.createElement('a');
-    link.className = 'nav-link';
-    link.dataset.page = 'data-management';
-    link.dataset.minRole = 'OPERATOR';
-    link.href = window.location.pathname.includes('/html/') || window.location.pathname.includes('/mobile/')
-      ? '../data_management.html'
-      : 'data_management.html';
-    link.textContent = '데이터 관리';
+    if (!sidebar) return;
+    const prefix = window.location.pathname.includes('/html/') || window.location.pathname.includes('/mobile/') ? '../' : '';
+    const links = [
+      { page: 'work-data-management', minRole: 'OPERATOR', href: `${prefix}work_data_management.html`, text: '근무 데이터 관리' },
+      { page: 'visitors-data-management', minRole: 'OPERATOR', href: `${prefix}visitors_data_management.html`, text: '출입 데이터 관리' },
+      { page: 'serials-data-management', minRole: 'OPERATOR', href: `${prefix}serials_data_management.html`, text: '연속간행물 데이터 관리' },
+      { page: 'system-backup-management', minRole: 'MASTER', href: `${prefix}system_backup_management.html`, text: '시스템 백업' },
+    ];
     const historyLink = sidebar.querySelector('.nav-link[data-page="history"]');
+    const shiftsLink = sidebar.querySelector('.nav-link[data-page="shifts"]');
+    const visitorLink = sidebar.querySelector('.nav-link[data-page="visitor-settings"]') || sidebar.querySelector('.nav-link[data-page="visitor-portal"]');
+    const serialsLink = sidebar.querySelector('.nav-link[data-page="serials-layout"]') || sidebar.querySelector('.nav-link[data-page="serials-manage"]') || sidebar.querySelector('.nav-link[data-page="serials-portal"]');
     const divider = sidebar.querySelector('.nav-divider');
-    if (historyLink) {
-      historyLink.insertAdjacentElement('afterend', link);
-    } else if (divider) {
-      sidebar.insertBefore(link, divider);
-    } else {
-      sidebar.appendChild(link);
-    }
+    const insertAfter = (target, link) => {
+      if (target) target.insertAdjacentElement('afterend', link);
+      else if (divider) sidebar.insertBefore(link, divider);
+      else sidebar.appendChild(link);
+    };
+    links.forEach((item) => {
+      if (sidebar.querySelector(`.nav-link[data-page="${item.page}"]`)) return;
+      const link = document.createElement('a');
+      link.className = 'nav-link';
+      link.dataset.page = item.page;
+      link.dataset.minRole = item.minRole;
+      link.href = item.href;
+      link.textContent = item.text;
+      if (item.page === 'work-data-management') insertAfter(shiftsLink || historyLink, link);
+      else if (item.page === 'visitors-data-management') insertAfter(visitorLink || historyLink, link);
+      else if (item.page === 'serials-data-management') insertAfter(serialsLink || historyLink, link);
+      else insertAfter(historyLink, link);
+    });
   }
 
   function isLinkAllowed(link, role) {
@@ -229,7 +242,7 @@ if (!globalThis.__worktimeLayout) {
         applyNavVisibility(user.role);
         if (!isPageAllowed(activePage, user.role) && activePage !== 'dashboard') {
           alert('해당 페이지에 대한 접근 권한이 없습니다. 대시보드로 이동합니다.');
-          window.location.href = 'dashboard.html';
+          window.location.href = document.body?.dataset?.home || 'dashboard.html';
           return user;
         }
       } else {
