@@ -12,10 +12,15 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..config import get_settings
 from ..core.backup_manifest import (
+    BACKUP_DOMAINS,
+    FULL_TABLES,
     SCHEMA_VERSION,
     SERIAL_TABLES,
+    SERVER_RESTORE_DOMAINS,
     SUPPORTED_DOMAINS,
+    UPLOAD_RESTORE_DOMAINS,
     VISITOR_TABLES,
+    WORK_TABLES,
     calculate_checksum,
 )
 from .backup_service import TABLE_MODEL_MAP, create_json_backup, normalize_domain
@@ -50,6 +55,42 @@ SERIAL_INSERT_ORDER = [
     "serial_shelves",
     "serial_publications",
 ]
+WORK_DELETE_ORDER = [
+    "audit_logs",
+    "shift_requests",
+    "user_shifts",
+    "shifts",
+]
+WORK_INSERT_ORDER = [
+    "shifts",
+    "user_shifts",
+    "shift_requests",
+    "audit_logs",
+]
+FULL_DELETE_ORDER = [
+    "notice_reads",
+    "notice_targets",
+    "notices",
+    *VISITOR_DELETE_ORDER,
+    *SERIAL_DELETE_ORDER,
+    "shift_requests",
+    "user_shifts",
+    "auth_accounts",
+    "shifts",
+    "users",
+]
+FULL_INSERT_ORDER = [
+    "users",
+    "auth_accounts",
+    "shifts",
+    "user_shifts",
+    "shift_requests",
+    "notices",
+    "notice_targets",
+    "notice_reads",
+    *VISITOR_INSERT_ORDER,
+    *SERIAL_INSERT_ORDER,
+]
 
 USER_REFERENCE_COLUMNS = {"created_by", "updated_by"}
 
@@ -59,15 +100,35 @@ def _required_tables(domain: str) -> list[str]:
         return VISITOR_TABLES
     if domain == "SERIALS":
         return SERIAL_TABLES
+    if domain == "FULL":
+        return FULL_TABLES
+    if domain == "WORK":
+        return WORK_TABLES
     return []
 
 
 def _insert_order(domain: str) -> list[str]:
-    return VISITOR_INSERT_ORDER if domain == "VISITORS" else SERIAL_INSERT_ORDER
+    if domain == "VISITORS":
+        return VISITOR_INSERT_ORDER
+    if domain == "SERIALS":
+        return SERIAL_INSERT_ORDER
+    if domain == "FULL":
+        return FULL_INSERT_ORDER
+    if domain == "WORK":
+        return WORK_INSERT_ORDER
+    return []
 
 
 def _delete_order(domain: str) -> list[str]:
-    return VISITOR_DELETE_ORDER if domain == "VISITORS" else SERIAL_DELETE_ORDER
+    if domain == "VISITORS":
+        return VISITOR_DELETE_ORDER
+    if domain == "SERIALS":
+        return SERIAL_DELETE_ORDER
+    if domain == "FULL":
+        return FULL_DELETE_ORDER
+    if domain == "WORK":
+        return WORK_DELETE_ORDER
+    return []
 
 
 def _safe_backup_path(backup: models.DataBackup) -> Path:
@@ -241,7 +302,13 @@ def _validate_internal_foreign_keys(domain: str, data: dict[str, list[dict]], er
                 errors.append(f"serial_publications[{index}].shelf_id references missing serial_shelves")
 
 
-def _validate_user_foreign_keys(db: Session, data: dict[str, list[dict]], errors: list[str]) -> None:
+def _validate_user_foreign_keys(
+    db: Session,
+    data: dict[str, list[dict]],
+    errors: list[str],
+    *,
+    allowed_user_ids: set[UUID] | None = None,
+) -> None:
     referenced_user_ids = set()
     for table_rows in data.values():
         for row in table_rows:
@@ -250,10 +317,72 @@ def _validate_user_foreign_keys(db: Session, data: dict[str, list[dict]], errors
                     referenced_user_ids.add(row[column_name])
     if not referenced_user_ids:
         return
-    existing = {row[0] for row in db.query(models.User.id).filter(models.User.id.in_(referenced_user_ids)).all()}
+    existing = allowed_user_ids
+    if existing is None:
+        existing = {row[0] for row in db.query(models.User.id).filter(models.User.id.in_(referenced_user_ids)).all()}
     missing = referenced_user_ids - existing
     if missing:
         errors.append(f"Backup references missing users: {', '.join(sorted(str(item) for item in missing))}")
+
+
+def _validate_work_foreign_keys(db: Session, data: dict[str, list[dict]], errors: list[str]) -> None:
+    current_user_ids = {row[0] for row in db.query(models.User.id).all()}
+    shift_ids = {row.get("id") for row in data["shifts"] if row.get("id")}
+    request_ids = {row.get("id") for row in data["shift_requests"] if row.get("id")}
+    for index, row in enumerate(data["user_shifts"]):
+        if row.get("user_id") not in current_user_ids:
+            errors.append(f"user_shifts[{index}].user_id references missing users")
+        if row.get("shift_id") not in shift_ids:
+            errors.append(f"user_shifts[{index}].shift_id references missing shifts")
+    for index, row in enumerate(data["shift_requests"]):
+        if row.get("user_id") not in current_user_ids:
+            errors.append(f"shift_requests[{index}].user_id references missing users")
+        if row.get("operator_id") and row.get("operator_id") not in current_user_ids:
+            errors.append(f"shift_requests[{index}].operator_id references missing users")
+        if row.get("target_shift_id") not in shift_ids:
+            errors.append(f"shift_requests[{index}].target_shift_id references missing shifts")
+    for index, row in enumerate(data["audit_logs"]):
+        if row.get("actor_user_id") and row.get("actor_user_id") not in current_user_ids:
+            errors.append(f"audit_logs[{index}].actor_user_id references missing users")
+        if row.get("target_user_id") and row.get("target_user_id") not in current_user_ids:
+            errors.append(f"audit_logs[{index}].target_user_id references missing users")
+        if row.get("request_id") and row.get("request_id") not in request_ids:
+            errors.append(f"audit_logs[{index}].request_id references missing shift_requests")
+
+
+def _validate_full_foreign_keys(data: dict[str, list[dict]], errors: list[str]) -> None:
+    user_ids = {row.get("id") for row in data["users"] if row.get("id")}
+    shift_ids = {row.get("id") for row in data["shifts"] if row.get("id")}
+    request_ids = {row.get("id") for row in data["shift_requests"] if row.get("id")}
+    notice_ids = {row.get("id") for row in data["notices"] if row.get("id")}
+    _validate_internal_foreign_keys("VISITORS", data, errors)
+    _validate_internal_foreign_keys("SERIALS", data, errors)
+    _validate_user_foreign_keys(None, data, errors, allowed_user_ids=user_ids)
+    for index, row in enumerate(data["auth_accounts"]):
+        if row.get("user_id") not in user_ids:
+            errors.append(f"auth_accounts[{index}].user_id references missing users")
+    for index, row in enumerate(data["user_shifts"]):
+        if row.get("user_id") not in user_ids:
+            errors.append(f"user_shifts[{index}].user_id references missing users")
+        if row.get("shift_id") not in shift_ids:
+            errors.append(f"user_shifts[{index}].shift_id references missing shifts")
+    for index, row in enumerate(data["shift_requests"]):
+        if row.get("user_id") not in user_ids:
+            errors.append(f"shift_requests[{index}].user_id references missing users")
+        if row.get("operator_id") and row.get("operator_id") not in user_ids:
+            errors.append(f"shift_requests[{index}].operator_id references missing users")
+        if row.get("target_shift_id") not in shift_ids:
+            errors.append(f"shift_requests[{index}].target_shift_id references missing shifts")
+    for index, row in enumerate(data["notice_targets"]):
+        if row.get("notice_id") not in notice_ids:
+            errors.append(f"notice_targets[{index}].notice_id references missing notices")
+        if row.get("user_id") not in user_ids:
+            errors.append(f"notice_targets[{index}].user_id references missing users")
+    for index, row in enumerate(data["notice_reads"]):
+        if row.get("notice_id") not in notice_ids:
+            errors.append(f"notice_reads[{index}].notice_id references missing notices")
+        if row.get("user_id") not in user_ids:
+            errors.append(f"notice_reads[{index}].user_id references missing users")
 
 
 def validate_backup_payload(
@@ -262,6 +391,8 @@ def validate_backup_payload(
     *,
     expected_domain: str | None = None,
     backup_type: str = "JSON",
+    allowed_domains: set[str] | None = None,
+    allow_sensitive_tables: bool = False,
 ) -> dict:
     errors: list[str] = []
     warnings: list[str] = []
@@ -284,9 +415,10 @@ def validate_backup_payload(
     schema_version = meta.get("schema_version")
     if schema_version != SCHEMA_VERSION:
         errors.append("Unsupported schema_version")
-    if domain not in SUPPORTED_DOMAINS:
+    allowed_domains = allowed_domains or UPLOAD_RESTORE_DOMAINS
+    if domain not in allowed_domains:
         errors.append("Unsupported backup_type/domain")
-    if meta_domain and meta_domain not in SUPPORTED_DOMAINS:
+    if meta_domain and meta_domain not in allowed_domains:
         errors.append("Unsupported meta.domain")
     if backup_type_domain and meta_domain and backup_type_domain != meta_domain:
         errors.append("meta.backup_type and meta.domain do not match")
@@ -294,10 +426,10 @@ def validate_backup_payload(
         errors.append("Backup DB domain does not match backup file meta")
     if backup_type != "JSON":
         errors.append("Only JSON backups can be restored")
-    if isinstance(data, dict) and ({"users", "auth_accounts"} & set(data.keys())):
+    if isinstance(data, dict) and not allow_sensitive_tables and ({"users", "auth_accounts"} & set(data.keys())):
         errors.append("users/auth_accounts are not allowed in upload restore")
 
-    if isinstance(data, dict) and domain in SUPPORTED_DOMAINS:
+    if isinstance(data, dict) and domain in allowed_domains:
         required = set(_required_tables(domain))
         actual = set(data.keys())
         missing = required - actual
@@ -308,8 +440,13 @@ def validate_backup_payload(
             errors.append(f"Unknown table keys: {', '.join(sorted(unknown))}")
         coerced = _coerce_data(data, domain, errors) if not missing else {name: [] for name in required}
         if not missing and not unknown:
-            _validate_internal_foreign_keys(domain, coerced, errors)
-            _validate_user_foreign_keys(db, coerced, errors)
+            if domain in SUPPORTED_DOMAINS:
+                _validate_internal_foreign_keys(domain, coerced, errors)
+                _validate_user_foreign_keys(db, coerced, errors)
+            elif domain == "WORK":
+                _validate_work_foreign_keys(db, coerced, errors)
+            elif domain == "FULL":
+                _validate_full_foreign_keys(coerced, errors)
     else:
         coerced = {}
 
@@ -319,7 +456,7 @@ def validate_backup_payload(
     summary = {table_name: len(rows) for table_name, rows in data.items()} if isinstance(data, dict) else {}
     return {
         "valid": not errors,
-        "domain": domain if domain in SUPPORTED_DOMAINS else None,
+        "domain": domain if domain in allowed_domains else None,
         "schema_version": schema_version,
         "summary": summary,
         "warnings": warnings,
@@ -341,6 +478,8 @@ def validate_backup_file(db: Session, backup: models.DataBackup) -> dict:
         payload,
         expected_domain=backup.domain,
         backup_type=backup.backup_type,
+        allowed_domains=SERVER_RESTORE_DOMAINS,
+        allow_sensitive_tables=True,
     )
     result["errors"] = errors + result.get("errors", [])
     result["valid"] = not result["errors"]
@@ -355,6 +494,23 @@ def _insert_rows(db: Session, domain: str, data: dict[str, list[dict]]) -> None:
 
 
 def _delete_domain_rows(db: Session, domain: str) -> None:
+    if domain == "FULL":
+        db.query(models.AuditLog).update(
+            {
+                models.AuditLog.actor_user_id: None,
+                models.AuditLog.target_user_id: None,
+                models.AuditLog.request_id: None,
+            },
+            synchronize_session=False,
+        )
+        db.query(models.DataBackup).update(
+            {models.DataBackup.created_by: None},
+            synchronize_session=False,
+        )
+        db.query(models.DataRestoreJob).update(
+            {models.DataRestoreJob.requested_by: None},
+            synchronize_session=False,
+        )
     for table_name in _delete_order(domain):
         db.query(TABLE_MODEL_MAP[table_name]).delete(synchronize_session=False)
 
@@ -415,8 +571,9 @@ def restore_backup(
         db,
         domain=domain,
         current_user=current_user,
-        description=f"Automatic pre-restore backup for restore job {job.id}",
-        file_name=f"pre_restore_{stamp}_{domain.lower()}.json",
+        description=f"Restore point before restore job {job.id}",
+        file_name=f"restore_point_{stamp}_{domain.lower()}.json",
+        kind="RESTORE_POINT",
     )
     _delete_domain_rows(db, domain)
     _insert_rows(db, domain, validation["_coerced_data"])
@@ -425,6 +582,7 @@ def restore_backup(
     job.summary = {
         "restored": validation["summary"],
         "pre_restore_backup_id": str(pre_restore.id),
+        "restore_point_backup_id": str(pre_restore.id),
     }
     return job, validation
 
@@ -472,8 +630,9 @@ def restore_uploaded_backup(
         db,
         domain=domain,
         current_user=current_user,
-        description=f"Automatic pre-upload-restore backup for restore job {job.id}",
-        file_name=f"pre_restore_{stamp}_{domain.lower()}.json",
+        description=f"Restore point before upload restore job {job.id}",
+        file_name=f"restore_point_{stamp}_{domain.lower()}.json",
+        kind="RESTORE_POINT",
     )
     _delete_domain_rows(db, domain)
     _insert_rows(db, domain, validation["_coerced_data"])
@@ -482,6 +641,7 @@ def restore_uploaded_backup(
     job.summary = {
         "restored": validation["summary"],
         "pre_restore_backup_id": str(pre_restore.id),
+        "restore_point_backup_id": str(pre_restore.id),
         "source": "UPLOAD",
     }
     return job, validation
