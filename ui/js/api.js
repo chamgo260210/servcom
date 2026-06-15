@@ -62,6 +62,7 @@ async function refreshToken() {
 }
 
 async function apiRequest(path, options = {}) {
+  const { responseType, ...requestOptions } = options;
   const headers = options.headers ? { ...options.headers } : {};
   let token = getToken();
   const exp = parseInt(localStorage.getItem('token_exp') || '0', 10);
@@ -78,13 +79,13 @@ async function apiRequest(path, options = {}) {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
-  let resp = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  let resp = await fetch(`${API_BASE_URL}${path}`, { ...requestOptions, headers });
   if (resp.status === 401 && !options.__noRetry && token) {
     try {
       const newToken = await refreshToken();
       if (newToken) {
         const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
-        const retryOptions = { ...options, headers: retryHeaders };
+        const retryOptions = { ...requestOptions, headers: retryHeaders };
         retryOptions.__noRetry = true;
         resp = await fetch(`${API_BASE_URL}${path}`, retryOptions);
       }
@@ -110,6 +111,7 @@ async function apiRequest(path, options = {}) {
     throw new Error(message);
   }
   if (resp.status === 204) return null;
+  if (responseType === 'blob') return resp;
   return await resp.json();
 }
 

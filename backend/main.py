@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from app import models
 from app.config import get_settings
 from app.deps import engine, initialize_database
-from app.routers import admin, auth, history, notices, requests, schedule, serials, system, users, visitors
+from app.routers import admin, auth, data_management, history, notices, requests, schedule, serials, system, users, visitors
 
 settings = get_settings()
 if settings.APP_ENV.lower() in {"local", "development", "dev"}:
@@ -69,6 +69,7 @@ app.include_router(history.router)
 app.include_router(notices.router)
 app.include_router(visitors.router)
 app.include_router(serials.router)
+app.include_router(data_management.router)
 
 
 @app.on_event("startup")
