@@ -328,7 +328,8 @@ def list_backups(
         query = query.filter(models.DataBackup.domain == requested_domain)
     if current_user.role != models.UserRole.MASTER:
         query = query.filter(models.DataBackup.domain.in_(("VISITORS", "SERIALS", "WORK")))
-    return query.order_by(models.DataBackup.created_at.desc()).all()
+    backups = query.order_by(models.DataBackup.created_at.desc()).all()
+    return [backup for backup in backups if _safe_backup_file_exists(backup)]
 
 
 @router.post("/backups", response_model=schemas.DataBackupOut, status_code=status.HTTP_201_CREATED)

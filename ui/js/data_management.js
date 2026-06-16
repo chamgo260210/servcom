@@ -69,7 +69,7 @@ function renderBackups(backups) {
       ? `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`
       : '';
     const deleteButton = isMaster
-      ? `<button class="btn tiny muted" type="button" data-delete="${backup.id}">삭제</button>`
+      ? `<button class="btn tiny muted" type="button" data-delete="${backup.id}">목록에서 제외</button>`
       : '';
     tr.innerHTML = `
       <td>${backup.domain}</td>
@@ -310,12 +310,12 @@ backupList?.addEventListener('click', async (event) => {
       await loadBackups();
       await loadRestoreJobs();
     } else if (button.dataset.delete) {
-      if (!window.confirm('이 백업을 삭제 표시하시겠습니까? 실제 파일은 삭제되지 않습니다.')) {
+      if (!window.confirm('이 백업을 백업 목록에서 제외합니다. 실제 저장소 파일은 삭제되지 않습니다.')) {
         return;
       }
-      setMessage(backupMessage, '백업 삭제 처리 중...');
+      setMessage(backupMessage, '백업을 목록에서 제외하는 중...');
       await apiRequest(`/data/backups/${button.dataset.delete}`, { method: 'DELETE' });
-      setMessage(backupMessage, '백업이 삭제 처리되었습니다.');
+      setMessage(backupMessage, '백업 목록에서 제외했습니다. 저장소 파일은 유지됩니다.');
       validationState.delete(button.dataset.delete);
       await loadBackups();
     }

@@ -23,6 +23,8 @@
 - `TRUSTED_HOSTS` (기본 `localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev`)
 - `TRUST_ALL_HOSTS` (기본 `false`, 장애 대응용 임시 전체 허용)
 - `BACKEND_CORS_ORIGINS` (기본 비활성)
+- `BACKUP_STORAGE_DIR` (운영 기본 `/srv/app/backups`)
+- `BACKUP_UPLOAD_MAX_BYTES`/`BACKUP_RETENTION_DAYS`/`BACKUP_MAX_FILES_PER_DOMAIN`
 - `MASTER_LOGIN_ID`/`MASTER_PASSWORD`/`MASTER_NAME`/`MASTER_IDENTIFIER` (users 테이블이 비어 있을 때 시작 시 부트스트랩 마스터 자동 생성)
 
 예시는 `deploy/.env.server.example` 참고.
@@ -52,6 +54,8 @@ done
 5. 브라우저에서 Worker URL 접속 → 로그인
 
 > 참고: `MASTER_*`는 SQL seed가 아니라 **API 시작 시 users가 비어 있을 때 자동 생성되는 부트스트랩 계정**입니다.
+
+> 운영 주의: `BACKUP_STORAGE_DIR` 디렉터리는 FastAPI 실행 사용자가 쓸 수 있어야 합니다. 기본 운영 경로는 `/srv/app/backups`이며, 준비 명령은 `docs/servcom_deployment_guide.md`의 "백업 저장소 디렉터리 준비" 절을 참고하세요.
 
 ## 시설망 서버컴 배포
 아래 문서를 순서대로 진행하세요(우분투만 설치된 초기 서버 기준).
