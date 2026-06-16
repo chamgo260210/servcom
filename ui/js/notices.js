@@ -1,4 +1,5 @@
 import { apiRequest } from './api.js';
+import { formatDateTimeSeoul } from './datetime.js';
 
 const typeLabels = {
   DB_MAINTENANCE: 'DB 점검',
@@ -9,9 +10,7 @@ const typeLabels = {
 
 function formatDate(value) {
   if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('ko-KR', { hour12: false });
+  return formatDateTimeSeoul(value);
 }
 
 function buildNoticeTag(notice) {

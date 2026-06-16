@@ -1,5 +1,6 @@
 // File: /ui/js/history.js
 import { apiRequest } from './api.js';
+import { formatDateTimeSeoul } from './datetime.js';
 
 async function loadHistory(currentUser) {
   const tbody = document.querySelector('#history-table tbody');
@@ -22,7 +23,7 @@ async function loadHistory(currentUser) {
         card.className = 'history-card';
         card.innerHTML = `
           <div class="history-line"><strong>${log.action_label || log.action_type}</strong></div>
-          <div class="history-meta">${new Date(log.created_at).toLocaleString()}</div>
+          <div class="history-meta">${formatDateTimeSeoul(log.created_at)}</div>
           <div class="history-row">신청자: ${log.actor_name || log.actor_user_id || '-'}</div>
           <div class="history-row">대상자: ${log.target_name || log.target_user_id || '-'}</div>
           <div class="history-row">신청 ID: ${log.request_id || '-'}</div>
@@ -33,7 +34,7 @@ async function loadHistory(currentUser) {
       }
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${new Date(log.created_at).toLocaleString()}</td>
+        <td>${formatDateTimeSeoul(log.created_at)}</td>
         <td>${log.action_label || log.action_type}</td>
         <td>${log.actor_name || log.actor_user_id || '-'}</td>
         <td>${log.target_name || log.target_user_id || '-'}</td>

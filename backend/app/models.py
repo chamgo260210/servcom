@@ -1,6 +1,6 @@
-# File: /backend/app/models.py
+﻿# File: /backend/app/models.py
 import enum
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timezone
 
 from sqlalchemy import (
     Column,
@@ -20,6 +20,10 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 
 class UserRole(str, enum.Enum):
@@ -88,12 +92,12 @@ class SerialLayout(Base):
     note = Column(String)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
     walls = Column(JSONB)
 
@@ -117,12 +121,12 @@ class SerialShelfType(Base):
     note = Column(String)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     shelves = relationship("SerialShelf", back_populates="shelf_type", cascade="all, delete-orphan")
@@ -145,12 +149,12 @@ class SerialShelf(Base):
     note = Column(String)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     layout = relationship("SerialLayout", back_populates="shelves")
@@ -173,13 +177,13 @@ class User(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     auth_account = relationship("AuthAccount", back_populates="user", uselist=False)
@@ -224,13 +228,13 @@ class Shift(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     assignments = relationship("UserShift", back_populates="shift")
@@ -260,13 +264,13 @@ class UserShift(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     user = relationship("User")
@@ -311,13 +315,13 @@ class ShiftRequest(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     # 요청 만든 유저
@@ -352,7 +356,7 @@ class AuditLog(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
 
 
@@ -375,7 +379,7 @@ class DataBackup(Base):
     status = Column(String, nullable=False, default="READY", server_default=text("'READY'"))
     description = Column(String)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     deleted_at = Column(DateTime(timezone=True))
 
     creator = relationship("User")
@@ -394,7 +398,7 @@ class DataRestoreJob(Base):
     mode = Column(String, nullable=False)
     status = Column(String, nullable=False)
     requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     finished_at = Column(DateTime(timezone=True))
     error_message = Column(String)
     summary = Column(JSONB)
@@ -425,13 +429,13 @@ class Notice(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     creator = relationship("User")
@@ -452,7 +456,7 @@ class NoticeTarget(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
 
     notice = relationship("Notice", back_populates="targets")
@@ -475,7 +479,7 @@ class NoticeRead(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
 
     notice = relationship("Notice", back_populates="reads")
@@ -497,13 +501,13 @@ class VisitorSchoolYear(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     periods = relationship("VisitorPeriod", back_populates="school_year", cascade="all, delete-orphan")
@@ -530,13 +534,13 @@ class VisitorPeriod(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     school_year = relationship("VisitorSchoolYear", back_populates="periods")
@@ -558,13 +562,13 @@ class VisitorDailyCount(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     school_year = relationship("VisitorSchoolYear", back_populates="entries")
@@ -582,13 +586,13 @@ class VisitorRunningTotal(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     school_year = relationship("VisitorSchoolYear", back_populates="running_total")
@@ -610,13 +614,13 @@ class VisitorMonthlyStat(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     school_year = relationship("VisitorSchoolYear", back_populates="monthly_stats")
@@ -637,13 +641,13 @@ class VisitorPeriodStat(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     school_year = relationship("VisitorSchoolYear", back_populates="period_stats")
@@ -659,13 +663,13 @@ class VisitorYearStat(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     school_year = relationship("VisitorSchoolYear", back_populates="year_stats")
@@ -695,15 +699,16 @@ class SerialPublication(Base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=utc_now,
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
     shelf = relationship("SerialShelf", back_populates="publications")
+

@@ -1,5 +1,6 @@
 import { apiRequest } from './api.js';
 import { initAppLayout } from './layout.js';
+import { formatDateTimeSeoul } from './datetime.js';
 
 const backupList = document.getElementById('backup-list');
 const backupMessage = document.getElementById('backup-message');
@@ -53,7 +54,7 @@ function renderBackups(backups) {
   backupList.innerHTML = '';
   backups.forEach((backup) => {
     const tr = document.createElement('tr');
-    const createdAt = backup.created_at ? new Date(backup.created_at).toLocaleString('ko-KR') : '-';
+    const createdAt = backup.created_at ? formatDateTimeSeoul(backup.created_at) : '-';
     const isMaster = currentUser?.role === 'MASTER';
     const validation = validationState.get(backup.id);
     const canManageBackup = backup.domain !== 'FULL' || isMaster;
@@ -127,8 +128,8 @@ function renderRestoreJobs(jobs) {
       <td>${job.domain}</td>
       <td>${job.mode}</td>
       <td>${job.status}</td>
-      <td>${job.started_at ? new Date(job.started_at).toLocaleString('ko-KR') : '-'}</td>
-      <td>${job.finished_at ? new Date(job.finished_at).toLocaleString('ko-KR') : '-'}</td>
+      <td>${job.started_at ? formatDateTimeSeoul(job.started_at) : '-'}</td>
+      <td>${job.finished_at ? formatDateTimeSeoul(job.finished_at) : '-'}</td>
     `;
     restoreList.appendChild(tr);
   });

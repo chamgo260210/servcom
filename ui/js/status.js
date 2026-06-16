@@ -1,5 +1,6 @@
-// File: /ui/js/status.js
+﻿// File: /ui/js/status.js
 import { API_BASE_URL } from './api.js';
+import { formatTimeSeoul } from './datetime.js';
 
 function fetchWithTimeout(url, { timeoutMs = 4000, ...options } = {}) {
   const controller = new AbortController();
@@ -47,11 +48,11 @@ export async function checkSystemStatus(serverEl, dbEl, metaEl, options = {}) {
     const checkedAt = new Date();
     const dbOk = data.db_status === 'ok' || data.db === 'ok';
 
-    const detail = `응답 ${latency}ms · ${checkedAt.toLocaleTimeString()} 체크`;
+    const detail = `응답 ${latency}ms · ${formatTimeSeoul(checkedAt)} 체크`;
     const tooltip = `서버: 정상 · DB: ${dbOk ? '정상' : '확인 필요'} · ${detail}`;
     setStatusState(serverEl, '서버', 'status-ok', tooltip);
     setStatusState(dbEl, dbOk ? 'DB' : 'DB(확인)', dbOk ? 'status-ok' : 'status-bad', tooltip);
-    if (metaEl) metaEl.textContent = `최근 체크 ${checkedAt.toLocaleTimeString()} · ${latency}ms`;
+    if (metaEl) metaEl.textContent = `최근 체크 ${formatTimeSeoul(checkedAt)} · ${latency}ms`;
     if (options.onRecover && attempt > 1) options.onRecover();
     return { ok: true, latency, checkedAt };
   } catch (e) {
@@ -72,3 +73,4 @@ export async function checkSystemStatus(serverEl, dbEl, metaEl, options = {}) {
     return { ok: false, error: reason };
   }
 }
+

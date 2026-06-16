@@ -1,6 +1,7 @@
-// File: /ui/js/profile.js
+﻿// File: /ui/js/profile.js
 import { apiRequest, redirectToLogin } from './api.js';
 import { setupPasswordToggle, markPasswordUpdated } from './auth.js';
+import { formatDateTimeSeoul, formatTimeSeoul } from './datetime.js';
 
 const roleLabel = {
   MASTER: '마스터',
@@ -19,7 +20,7 @@ function renderProfile(user) {
   setText('profile-identifier', user?.identifier || '-');
   setText('profile-login', user?.auth_account?.login_id || '-');
   setText('profile-active', user?.active ? '활성' : '비활성');
-  setText('profile-last-login', user?.auth_account?.last_login_at ? new Date(user.auth_account.last_login_at).toLocaleString() : '기록 없음');
+  setText('profile-last-login', user?.auth_account?.last_login_at ? formatDateTimeSeoul(user.auth_account.last_login_at) : '기록 없음');
 }
 
 function showAccountWarning(message, tips = []) {
@@ -139,7 +140,7 @@ function bindResetButtons(role) {
           body: JSON.stringify({ scope })
         });
         const label = document.getElementById('reset-result');
-        if (label) label.textContent = `${new Date().toLocaleTimeString()} · ${result.detail}`;
+        if (label) label.textContent = `${formatTimeSeoul()} · ${result.detail}`;
         alert('초기화가 완료되어 다시 로그인합니다.');
         redirectToLogin();
       } catch (err) {
@@ -185,3 +186,4 @@ async function attachProfilePage(user) {
 }
 
 export { attachProfilePage };
+

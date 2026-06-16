@@ -1,5 +1,6 @@
 import { apiRequest } from './api.js';
 import { initAppLayout } from './layout.js';
+import { formatDateTimeSeoul } from './datetime.js';
 
 const CONFIGS = {
   WORK: {
@@ -134,7 +135,7 @@ function renderBackups(backups) {
     tr.innerHTML = `
       <td>${backup.file_name}</td>
       <td>${formatSize(backup.file_size)}</td>
-      <td>${backup.created_at ? new Date(backup.created_at).toLocaleString('ko-KR') : '-'}</td>
+      <td>${backup.created_at ? formatDateTimeSeoul(backup.created_at) : '-'}</td>
       <td>${backup.status}</td>
       <td>${backup.description || '-'}</td>
       <td>
@@ -159,8 +160,8 @@ function renderRestoreJobs(jobs) {
     tr.innerHTML = `
       <td>${job.mode}</td>
       <td>${job.status}</td>
-      <td>${job.started_at ? new Date(job.started_at).toLocaleString('ko-KR') : '-'}</td>
-      <td>${job.finished_at ? new Date(job.finished_at).toLocaleString('ko-KR') : '-'}</td>
+      <td>${job.started_at ? formatDateTimeSeoul(job.started_at) : '-'}</td>
+      <td>${job.finished_at ? formatDateTimeSeoul(job.finished_at) : '-'}</td>
       <td>${restorePointLabel(job)}</td>
       <td>${job.error_message || '-'}</td>
     `;

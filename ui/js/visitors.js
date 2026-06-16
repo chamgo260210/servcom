@@ -1,5 +1,6 @@
 // File: /ui/js/visitors.js
 import { apiRequest } from './api.js';
+import { formatDateSeoul, formatDateTimeSeoul } from './datetime.js';
 
 const periodTypes = {
   SEMESTER_1: '1학기',
@@ -81,7 +82,7 @@ function showUserError(message, elementId) {
 function formatDate(dateStr) {
   if (!dateStr) return '-';
   try {
-    return new Date(dateStr).toLocaleDateString('ko-KR');
+    return formatDateSeoul(dateStr);
   } catch {
     return dateStr;
   }
@@ -95,7 +96,7 @@ function formatDateRange(start, end) {
 function formatDateTime(dateStr) {
   if (!dateStr) return '-';
   try {
-    return new Date(dateStr).toLocaleString('ko-KR');
+    return formatDateTimeSeoul(dateStr);
   } catch {
     return dateStr;
   }
