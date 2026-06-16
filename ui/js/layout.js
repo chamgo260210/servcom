@@ -199,6 +199,35 @@ if (!globalThis.__worktimeLayout) {
     });
   }
 
+  function applyCurrentPageLabel(activePage) {
+    const pageLabels = {
+      'visitor-dashboard': '출입자 통계 센터',
+      'visitor-entry': '일일 입력',
+      'visitor-bulk-entry': '일괄 입력',
+      'visitor-summary': '통계 리포트',
+      'visitor-settings': '학년도 · 설정',
+      'visitors-data-management': '출입 데이터 관리',
+      'serials-home': '연속 간행물 센터',
+      'serials-list': '조회 · 검색',
+      'serials-manage': '등록 · 수정',
+      'serials-layout': '배치도 · 서가 관리',
+      'serials-data-management': '연속 간행물 데이터 관리',
+      'system-backup-management': '시스템 백업',
+    };
+    const label = pageLabels[activePage];
+    if (!label) return;
+
+    document.querySelectorAll('.logo, .mobile-brand').forEach((brand) => {
+      const textNode = Array.from(brand.childNodes)
+        .find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+      if (textNode) {
+        textNode.textContent = ` ${label}`;
+      } else {
+        brand.append(` ${label}`);
+      }
+    });
+  }
+
   function isPageAllowed(activePage, role) {
     const activeLink = document.querySelector(`.nav-link[data-page="${activePage}"]`);
     if (!activeLink) return true;
@@ -290,6 +319,7 @@ if (!globalThis.__worktimeLayout) {
     initThemeToggle();
     showAppShellLoader();
     ensureDataManagementNavLink(activePage);
+    applyCurrentPageLabel(activePage);
     highlightNav(activePage);
     setupSidebar();
     wireCommonActions(activePage);

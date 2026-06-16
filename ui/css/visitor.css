@@ -21,15 +21,6 @@
   color: #e0f2fe;
 }
 
-.visitor-portal .sidebar a.nav-secondary {
-  color: #cbd5f5;
-  font-weight: 500;
-}
-
-.visitor-portal .sidebar a.nav-secondary:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
 .visitor-portal .nav-divider {
   height: 1px;
   background: rgba(148, 163, 184, 0.4);
