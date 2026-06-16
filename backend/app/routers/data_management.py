@@ -79,6 +79,25 @@ def _ensure_domain_access(domain: str, current_user, *, action: str = "access") 
     return normalized
 
 
+def _actor_snapshot(current_user) -> dict:
+    return {
+        "id": str(current_user.id),
+        "name": current_user.name,
+        "identifier": current_user.identifier,
+        "role": current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+    }
+
+
+def _restore_actor_id(domain: str, current_user) -> str | None:
+    return None if normalize_domain(domain) == "FULL" else str(current_user.id)
+
+
+def _restore_details(domain: str, current_user, details: dict) -> dict:
+    if normalize_domain(domain) == "FULL":
+        return {**details, "actor_snapshot": _actor_snapshot(current_user)}
+    return details
+
+
 def _restore_point_id_from_summary(summary: dict | None) -> str | None:
     if not isinstance(summary, dict):
         return None
@@ -555,31 +574,43 @@ def restore_backup_endpoint(
 
     record_log(
         db,
-        actor_id=str(current_user.id),
+        actor_id=_restore_actor_id(domain, current_user),
         action="DATA_RESTORE_START",
-        details={"backup_id": str(backup.id), "domain": backup.domain, "mode": mode},
+        details=_restore_details(
+            domain,
+            current_user,
+            {"backup_id": str(backup.id), "domain": backup.domain, "mode": mode},
+        ),
     )
     try:
         job, validation = restore_backup(db, backup=backup, current_user=current_user, mode=mode)
         if job.status == "SUCCESS":
             record_log(
                 db,
-                actor_id=str(current_user.id),
+                actor_id=_restore_actor_id(job.domain, current_user),
                 action="DATA_RESTORE_SUCCESS",
-                details={"backup_id": str(backup.id), "domain": job.domain, "mode": job.mode, "job_id": str(job.id)},
+                details=_restore_details(
+                    job.domain,
+                    current_user,
+                    {"backup_id": str(backup.id), "domain": job.domain, "mode": job.mode, "job_id": str(job.id)},
+                ),
             )
         else:
             record_log(
                 db,
-                actor_id=str(current_user.id),
+                actor_id=_restore_actor_id(backup.domain, current_user),
                 action="DATA_RESTORE_FAILED",
-                details={
-                    "backup_id": str(backup.id),
-                    "domain": backup.domain,
-                    "mode": mode,
-                    "errors": validation.get("errors", []),
-                    "job_id": str(job.id),
-                },
+                details=_restore_details(
+                    backup.domain,
+                    current_user,
+                    {
+                        "backup_id": str(backup.id),
+                        "domain": backup.domain,
+                        "mode": mode,
+                        "errors": validation.get("errors", []),
+                        "job_id": str(job.id),
+                    },
+                ),
             )
         db.commit()
         db.refresh(job)
@@ -599,9 +630,13 @@ def restore_backup_endpoint(
         db.add(failed_job)
         record_log(
             db,
-            actor_id=str(current_user.id),
+            actor_id=_restore_actor_id(backup.domain, current_user),
             action="DATA_RESTORE_FAILED",
-            details={"backup_id": str(backup.id), "domain": backup.domain, "mode": mode, "error": str(exc)},
+            details=_restore_details(
+                backup.domain,
+                current_user,
+                {"backup_id": str(backup.id), "domain": backup.domain, "mode": mode, "error": str(exc)},
+            ),
         )
         db.commit()
         raise HTTPException(status_code=400, detail="Restore failed") from exc
@@ -647,27 +682,35 @@ def rollback_restore_job(
             restore_job.summary = summary
             record_log(
                 db,
-                actor_id=str(current_user.id),
+                actor_id=_restore_actor_id(domain, current_user),
                 action="DATA_RESTORE_ROLLBACK",
-                details={
-                    "restore_job_id": str(restore_job.id),
-                    "rollback_job_id": str(rollback_job.id),
-                    "restore_point_backup_id": str(restore_point_backup.id),
-                    "domain": domain,
-                },
+                details=_restore_details(
+                    domain,
+                    current_user,
+                    {
+                        "restore_job_id": str(restore_job.id),
+                        "rollback_job_id": str(rollback_job.id),
+                        "restore_point_backup_id": str(restore_point_backup.id),
+                        "domain": domain,
+                    },
+                ),
             )
         else:
             record_log(
                 db,
-                actor_id=str(current_user.id),
+                actor_id=_restore_actor_id(domain, current_user),
                 action="DATA_RESTORE_FAILED",
-                details={
-                    "restore_job_id": str(restore_job.id),
-                    "rollback_job_id": str(rollback_job.id),
-                    "restore_point_backup_id": str(restore_point_backup.id),
-                    "domain": domain,
-                    "errors": validation.get("errors", []),
-                },
+                details=_restore_details(
+                    domain,
+                    current_user,
+                    {
+                        "restore_job_id": str(restore_job.id),
+                        "rollback_job_id": str(rollback_job.id),
+                        "restore_point_backup_id": str(restore_point_backup.id),
+                        "domain": domain,
+                        "errors": validation.get("errors", []),
+                    },
+                ),
             )
         db.commit()
         db.refresh(rollback_job)
@@ -676,9 +719,13 @@ def rollback_restore_job(
         db.rollback()
         record_log(
             db,
-            actor_id=str(current_user.id),
+            actor_id=_restore_actor_id(domain, current_user),
             action="DATA_RESTORE_FAILED",
-            details={"restore_job_id": str(restore_job.id), "domain": domain, "error": str(exc)},
+            details=_restore_details(
+                domain,
+                current_user,
+                {"restore_job_id": str(restore_job.id), "domain": domain, "error": str(exc)},
+            ),
         )
         db.commit()
         raise HTTPException(status_code=400, detail="Rollback failed") from exc

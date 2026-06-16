@@ -8,6 +8,8 @@ from decimal import Decimal
 from uuid import UUID
 
 SCHEMA_VERSION = "1.0.0"
+WORK_SCHEMA_VERSION = "1.1.0"
+SUPPORTED_SCHEMA_VERSIONS = {SCHEMA_VERSION, WORK_SCHEMA_VERSION}
 SUPPORTED_DOMAINS = {"VISITORS", "SERIALS"}
 BACKUP_DOMAINS = {"VISITORS", "SERIALS", "FULL", "WORK"}
 SERVER_RESTORE_DOMAINS = {"VISITORS", "SERIALS", "FULL", "WORK"}
@@ -46,10 +48,10 @@ FULL_TABLES = [
 
 WORK_TABLES = [
     "users",
+    "auth_accounts",
     "shifts",
     "user_shifts",
     "shift_requests",
-    "audit_logs",
 ]
 
 

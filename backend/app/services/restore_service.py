@@ -18,6 +18,7 @@ from ..core.backup_manifest import (
     SERIAL_TABLES,
     SERVER_RESTORE_DOMAINS,
     SUPPORTED_DOMAINS,
+    SUPPORTED_SCHEMA_VERSIONS,
     UPLOAD_RESTORE_DOMAINS,
     VISITOR_TABLES,
     WORK_TABLES,
@@ -56,7 +57,6 @@ SERIAL_INSERT_ORDER = [
     "serial_publications",
 ]
 WORK_DELETE_ORDER = [
-    "audit_logs",
     "shift_requests",
     "user_shifts",
     "shifts",
@@ -65,7 +65,6 @@ WORK_INSERT_ORDER = [
     "shifts",
     "user_shifts",
     "shift_requests",
-    "audit_logs",
 ]
 FULL_DELETE_ORDER = [
     "notice_reads",
@@ -325,29 +324,100 @@ def _validate_user_foreign_keys(
         errors.append(f"Backup references missing users: {', '.join(sorted(str(item) for item in missing))}")
 
 
-def _validate_work_foreign_keys(db: Session, data: dict[str, list[dict]], errors: list[str]) -> None:
-    current_user_ids = {row[0] for row in db.query(models.User.id).all()}
+def _role_value(value) -> str:
+    if hasattr(value, "value"):
+        return value.value
+    return str(value) if value is not None else ""
+
+
+def _validate_work_foreign_keys(
+    db: Session,
+    data: dict[str, list[dict]],
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    current_users = {row.id: row for row in db.query(models.User).all()}
+    current_user_ids = set(current_users)
+    backup_member_ids = set()
+    member_identifiers: dict[str, int] = {}
+    duplicate_member_identifiers: set[str] = set()
+    ignored_non_member_count = 0
+    for index, row in enumerate(data["users"]):
+        role = _role_value(row.get("role"))
+        user_id = row.get("id")
+        identifier = row.get("identifier")
+        if role == models.UserRole.MEMBER.value:
+            if user_id in current_users and current_users[user_id].role != models.UserRole.MEMBER:
+                errors.append(f"users[{index}].id conflicts with existing non-MEMBER user")
+            else:
+                backup_member_ids.add(user_id)
+            if identifier:
+                if identifier in member_identifiers:
+                    duplicate_member_identifiers.add(identifier)
+                else:
+                    member_identifiers[identifier] = index
+                identifier_conflict = db.query(models.User).filter(
+                    models.User.identifier == identifier,
+                    models.User.id != user_id,
+                ).first()
+                if identifier_conflict:
+                    errors.append(f"users[{index}].identifier conflicts with existing user")
+        else:
+            ignored_non_member_count += 1
+    for identifier in sorted(duplicate_member_identifiers):
+        errors.append(f"WORK backup contains duplicate MEMBER users.identifier: {identifier}")
+    if ignored_non_member_count:
+        warnings.append(f"WORK backup contains {ignored_non_member_count} non-MEMBER users; they will be ignored")
+
+    existing_member_ids = {
+        row[0] for row in db.query(models.User.id).filter(models.User.role == models.UserRole.MEMBER).all()
+    }
+    inactive_count = len(existing_member_ids - backup_member_ids)
+    if inactive_count:
+        warnings.append(f"{inactive_count} existing MEMBER users are not in the backup and will be set active=false")
+
+    if "auth_accounts" not in data:
+        data["auth_accounts"] = []
+    if not data["auth_accounts"]:
+        warnings.append("WORK backup has no auth_accounts; MEMBER account restore will be skipped")
+    auth_login_ids: dict[str, int] = {}
+    duplicate_auth_login_ids: set[str] = set()
+    for index, row in enumerate(data["auth_accounts"]):
+        user_id = row.get("user_id")
+        login_id = row.get("login_id")
+        password_hash = row.get("password_hash")
+        if user_id not in backup_member_ids:
+            errors.append(f"auth_accounts[{index}].user_id references missing WORK MEMBER users")
+        if not login_id:
+            errors.append(f"auth_accounts[{index}].login_id is required")
+        if not password_hash:
+            errors.append(f"auth_accounts[{index}].password_hash is required")
+        if login_id:
+            if login_id in auth_login_ids:
+                duplicate_auth_login_ids.add(login_id)
+            else:
+                auth_login_ids[login_id] = index
+            conflict = db.query(models.AuthAccount).filter(models.AuthAccount.login_id == login_id).first()
+            if conflict and conflict.user_id != user_id:
+                conflict_user = current_users.get(conflict.user_id)
+                role_label = _role_value(conflict_user.role) if conflict_user else "UNKNOWN"
+                errors.append(f"auth_accounts[{index}].login_id conflicts with existing {role_label} user")
+    for login_id in sorted(duplicate_auth_login_ids):
+        errors.append(f"WORK backup contains duplicate auth_accounts.login_id: {login_id}")
+
     shift_ids = {row.get("id") for row in data["shifts"] if row.get("id")}
-    request_ids = {row.get("id") for row in data["shift_requests"] if row.get("id")}
     for index, row in enumerate(data["user_shifts"]):
-        if row.get("user_id") not in current_user_ids:
-            errors.append(f"user_shifts[{index}].user_id references missing users")
+        if row.get("user_id") not in backup_member_ids:
+            errors.append(f"user_shifts[{index}].user_id references missing WORK MEMBER users")
         if row.get("shift_id") not in shift_ids:
             errors.append(f"user_shifts[{index}].shift_id references missing shifts")
     for index, row in enumerate(data["shift_requests"]):
-        if row.get("user_id") not in current_user_ids:
-            errors.append(f"shift_requests[{index}].user_id references missing users")
+        if row.get("user_id") not in backup_member_ids:
+            errors.append(f"shift_requests[{index}].user_id references missing WORK MEMBER users")
         if row.get("operator_id") and row.get("operator_id") not in current_user_ids:
-            errors.append(f"shift_requests[{index}].operator_id references missing users")
+            warnings.append(f"shift_requests[{index}].operator_id references missing users and will be restored as NULL")
         if row.get("target_shift_id") not in shift_ids:
             errors.append(f"shift_requests[{index}].target_shift_id references missing shifts")
-    for index, row in enumerate(data["audit_logs"]):
-        if row.get("actor_user_id") and row.get("actor_user_id") not in current_user_ids:
-            errors.append(f"audit_logs[{index}].actor_user_id references missing users")
-        if row.get("target_user_id") and row.get("target_user_id") not in current_user_ids:
-            errors.append(f"audit_logs[{index}].target_user_id references missing users")
-        if row.get("request_id") and row.get("request_id") not in request_ids:
-            errors.append(f"audit_logs[{index}].request_id references missing shift_requests")
 
 
 def _validate_full_foreign_keys(data: dict[str, list[dict]], errors: list[str]) -> None:
@@ -413,7 +483,10 @@ def validate_backup_payload(
     meta_domain = normalize_domain(meta.get("domain") or "")
     domain = backup_type_domain or meta_domain or normalize_domain(expected_domain or "")
     schema_version = meta.get("schema_version")
-    if schema_version != SCHEMA_VERSION:
+    if domain == "WORK":
+        if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+            errors.append("Unsupported schema_version")
+    elif schema_version != SCHEMA_VERSION:
         errors.append("Unsupported schema_version")
     allowed_domains = allowed_domains or UPLOAD_RESTORE_DOMAINS
     if domain not in allowed_domains:
@@ -432,19 +505,34 @@ def validate_backup_payload(
     if isinstance(data, dict) and domain in allowed_domains:
         required = set(_required_tables(domain))
         actual = set(data.keys())
-        missing = required - actual
-        unknown = actual - required
+        legacy_work_audit_logs = domain == "WORK" and "audit_logs" in actual
+        if legacy_work_audit_logs:
+            warnings.append("WORK backup contains audit_logs; audit_logs will be ignored")
+            actual_for_validation = actual - {"audit_logs"}
+        else:
+            actual_for_validation = actual
+        optional_missing = set()
+        if domain == "WORK" and "auth_accounts" not in actual_for_validation:
+            optional_missing.add("auth_accounts")
+        missing = required - actual_for_validation - optional_missing
+        unknown = actual_for_validation - required
         if missing:
             errors.append(f"Missing table keys: {', '.join(sorted(missing))}")
         if unknown:
             errors.append(f"Unknown table keys: {', '.join(sorted(unknown))}")
-        coerced = _coerce_data(data, domain, errors) if not missing else {name: [] for name in required}
+        if domain == "WORK" and not missing:
+            work_data = {key: value for key, value in data.items() if key in required}
+            if "auth_accounts" not in work_data:
+                work_data["auth_accounts"] = []
+            coerced = _coerce_data(work_data, domain, errors)
+        else:
+            coerced = _coerce_data(data, domain, errors) if not missing else {name: [] for name in required}
         if not missing and not unknown:
             if domain in SUPPORTED_DOMAINS:
                 _validate_internal_foreign_keys(domain, coerced, errors)
                 _validate_user_foreign_keys(db, coerced, errors)
             elif domain == "WORK":
-                _validate_work_foreign_keys(db, coerced, errors)
+                _validate_work_foreign_keys(db, coerced, errors, warnings)
             elif domain == "FULL":
                 _validate_full_foreign_keys(coerced, errors)
     else:
@@ -515,6 +603,110 @@ def _delete_domain_rows(db: Session, domain: str) -> None:
         db.query(TABLE_MODEL_MAP[table_name]).delete(synchronize_session=False)
 
 
+def _work_member_rows(data: dict[str, list[dict]]) -> list[dict]:
+    return [
+        row for row in data["users"]
+        if _role_value(row.get("role")) == models.UserRole.MEMBER.value and row.get("id")
+    ]
+
+
+def _upsert_work_members(db: Session, data: dict[str, list[dict]]) -> set[UUID]:
+    member_rows = _work_member_rows(data)
+    backup_member_ids = {row["id"] for row in member_rows}
+    for row in member_rows:
+        existing = db.query(models.User).filter(models.User.id == row["id"]).first()
+        if existing:
+            if existing.role != models.UserRole.MEMBER:
+                raise ValueError("WORK restore cannot modify MASTER/OPERATOR users")
+            if row.get("name") is not None:
+                existing.name = row.get("name")
+            if "identifier" in row:
+                existing.identifier = row.get("identifier")
+            existing.role = models.UserRole.MEMBER
+            if row.get("active") is not None:
+                existing.active = row.get("active")
+        else:
+            db.add(
+                models.User(
+                    id=row["id"],
+                    name=row.get("name") or "Restored Member",
+                    identifier=row.get("identifier"),
+                    role=models.UserRole.MEMBER,
+                    active=True if row.get("active") is None else row.get("active"),
+                    created_at=row.get("created_at") or datetime.now(timezone.utc),
+                    updated_at=row.get("updated_at") or datetime.now(timezone.utc),
+                )
+            )
+    query = db.query(models.User).filter(models.User.role == models.UserRole.MEMBER)
+    if backup_member_ids:
+        query = query.filter(~models.User.id.in_(backup_member_ids))
+    for user in query.all():
+        user.active = False
+    db.flush()
+    return backup_member_ids
+
+
+def _upsert_work_auth_accounts(db: Session, data: dict[str, list[dict]], backup_member_ids: set[UUID]) -> None:
+    for row in data.get("auth_accounts", []):
+        user_id = row.get("user_id")
+        if user_id not in backup_member_ids:
+            continue
+        login_id = row.get("login_id")
+        password_hash = row.get("password_hash")
+        if not login_id or not password_hash:
+            raise ValueError("WORK auth_accounts require login_id and password_hash")
+        conflict = db.query(models.AuthAccount).filter(
+            models.AuthAccount.login_id == login_id,
+            models.AuthAccount.user_id != user_id,
+        ).first()
+        if conflict:
+            raise ValueError("WORK auth_accounts login_id conflict")
+        account = db.query(models.AuthAccount).filter(models.AuthAccount.user_id == user_id).first()
+        if account:
+            account.login_id = login_id
+            account.password_hash = password_hash
+            account.last_login_at = row.get("last_login_at")
+        else:
+            db.add(
+                models.AuthAccount(
+                    user_id=user_id,
+                    login_id=login_id,
+                    password_hash=password_hash,
+                    last_login_at=row.get("last_login_at"),
+                )
+            )
+    db.flush()
+
+
+def _restore_work_rows(db: Session, data: dict[str, list[dict]]) -> None:
+    pre_restore_user_ids = {row[0] for row in db.query(models.User.id).all()}
+    backup_member_ids = _upsert_work_members(db, data)
+    _upsert_work_auth_accounts(db, data, backup_member_ids)
+
+    deleting_request_ids = [row[0] for row in db.query(models.ShiftRequest.id).all()]
+    if deleting_request_ids:
+        db.query(models.AuditLog).filter(models.AuditLog.request_id.in_(deleting_request_ids)).update(
+            {models.AuditLog.request_id: None},
+            synchronize_session=False,
+        )
+    db.query(models.ShiftRequest).delete(synchronize_session=False)
+    db.query(models.UserShift).delete(synchronize_session=False)
+    db.query(models.Shift).delete(synchronize_session=False)
+    db.flush()
+
+    for row in data["shifts"]:
+        db.add(models.Shift(**row))
+    db.flush()
+    for row in data["user_shifts"]:
+        db.add(models.UserShift(**row))
+    db.flush()
+    for row in data["shift_requests"]:
+        restored = dict(row)
+        if restored.get("operator_id") and restored["operator_id"] not in pre_restore_user_ids:
+            restored["operator_id"] = None
+        db.add(models.ShiftRequest(**restored))
+
+
 def restore_backup(
     db: Session,
     *,
@@ -575,8 +767,11 @@ def restore_backup(
         file_name=f"restore_point_{stamp}_{domain.lower()}.json",
         kind="RESTORE_POINT",
     )
-    _delete_domain_rows(db, domain)
-    _insert_rows(db, domain, validation["_coerced_data"])
+    if domain == "WORK":
+        _restore_work_rows(db, validation["_coerced_data"])
+    else:
+        _delete_domain_rows(db, domain)
+        _insert_rows(db, domain, validation["_coerced_data"])
     job.status = "SUCCESS"
     job.finished_at = datetime.now(timezone.utc)
     job.summary = {
