@@ -1,4 +1,5 @@
 import { apiRequest } from './api.js';
+import { formatDateTimeSeoul } from './datetime.js';
 import { triggerNotificationsRefresh } from './notifications.js';
 
 const days = ['월', '화', '수', '목', '금'];
@@ -577,7 +578,7 @@ async function renderRequestFeed() {
         card.innerHTML = `
           <div class="request-card-title">
             <strong>${ev.status}</strong>
-            <span class="muted small">${new Date(ev.time).toLocaleString()}</span>
+            <span class="muted small">${formatDateTimeSeoul(ev.time)}</span>
           </div>
           <div class="request-card-meta">${ev.requesterName} · ${ev.shiftText}</div>
           <div class="request-card-meta">날짜: ${ev.target || '-'}</div>
@@ -590,7 +591,7 @@ async function renderRequestFeed() {
       row.innerHTML = ev.rowHtml;
       const timeCell = document.createElement('td');
       timeCell.className = 'small muted';
-      timeCell.textContent = new Date(ev.time).toLocaleString();
+      timeCell.textContent = formatDateTimeSeoul(ev.time);
       row.appendChild(timeCell);
       tbody.appendChild(row);
     });

@@ -1,5 +1,5 @@
 # File: /backend/app/routers/auth.py
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -20,7 +20,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect login credentials")
     if not security.verify_password(form_data.password, user.auth_account.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect login credentials")
-    user.auth_account.last_login_at = datetime.utcnow()
+    user.auth_account.last_login_at = datetime.now(timezone.utc)
     db.add(user.auth_account)
     db.commit()
     db.refresh(user)

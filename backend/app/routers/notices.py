@@ -1,5 +1,5 @@
-# File: /backend/app/routers/notices.py
-from datetime import datetime
+﻿# File: /backend/app/routers/notices.py
+from datetime import datetime, timezone
 from typing import Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -72,7 +72,7 @@ def _apply_scope_filter(query, current: models.User):
 
 
 def _apply_active_filter(query):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return query.filter(
         models.Notice.is_active.is_(True),
         or_(models.Notice.start_at.is_(None), models.Notice.start_at <= now),
@@ -149,7 +149,7 @@ def list_notices(
     )
 
     if channel == models.NoticeChannel.POPUP:
-        cutoff = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         query = query.filter(or_(read_alias.dismissed_at.is_(None), read_alias.dismissed_at < cutoff))
     elif channel == models.NoticeChannel.BANNER:
         unread_only = False
@@ -380,7 +380,7 @@ def mark_notice_read(
         read = models.NoticeRead(notice_id=notice_id, user_id=current.id, channel=payload.channel)
         db.add(read)
     if not read.read_at:
-        read.read_at = datetime.utcnow()
+        read.read_at = datetime.now(timezone.utc)
     db.commit()
     return None
 
@@ -408,7 +408,8 @@ def dismiss_notice(
         read = models.NoticeRead(notice_id=notice_id, user_id=current.id, channel=payload.channel)
         db.add(read)
     if not read.read_at:
-        read.read_at = datetime.utcnow()
-    read.dismissed_at = datetime.utcnow()
+        read.read_at = datetime.now(timezone.utc)
+    read.dismissed_at = datetime.now(timezone.utc)
     db.commit()
     return None
+

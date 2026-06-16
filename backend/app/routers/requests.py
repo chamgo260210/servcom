@@ -1,5 +1,5 @@
-# File: /backend/app/routers/requests.py
-from datetime import datetime, timedelta
+﻿# File: /backend/app/routers/requests.py
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -228,7 +228,7 @@ def cancel_request(request_id: str, db: Session = Depends(get_db), current=Depen
     req.cancel_reason = "USER_CANCEL"
     if was_approved:
         req.cancelled_after_approval = True
-    req.decided_at = datetime.utcnow()
+    req.decided_at = datetime.now(timezone.utc)
     req.operator_id = current.id
     db.commit()
     db.refresh(req)
@@ -255,7 +255,7 @@ def approve_request(request_id: str, db: Session = Depends(get_db), current=Depe
         raise HTTPException(status_code=400, detail="이미 승인된 신청입니다")
     req.status = models.RequestStatus.APPROVED
     req.operator_id = current.id
-    req.decided_at = datetime.utcnow()
+    req.decided_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(req)
     record_log(
@@ -280,7 +280,7 @@ def reject_request(request_id: str, db: Session = Depends(get_db), current=Depen
     req.status = models.RequestStatus.REJECTED
     req.cancel_reason = "REJECTED"
     req.operator_id = current.id
-    req.decided_at = datetime.utcnow()
+    req.decided_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(req)
     record_log(
@@ -293,3 +293,4 @@ def reject_request(request_id: str, db: Session = Depends(get_db), current=Depen
     )
     db.commit()
     return req
+

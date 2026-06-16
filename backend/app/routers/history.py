@@ -1,5 +1,5 @@
 # File: /backend/app/routers/history.py
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,7 @@ ACTION_LABEL = {
 
 @router.get("", response_model=list[schemas.HistoryEntry])
 def history_logs(db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MASTER))):
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     query = db.query(models.AuditLog).filter(models.AuditLog.created_at >= cutoff)
     if current.role == models.UserRole.MEMBER:
         query = query.filter((models.AuditLog.actor_user_id == current.id) | (models.AuditLog.target_user_id == current.id))

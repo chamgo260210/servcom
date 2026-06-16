@@ -97,39 +97,88 @@ if (!globalThis.__worktimeLayout) {
     });
   }
 
-  function ensureDataManagementNavLink() {
+  function ensureDataManagementNavLink(activePage) {
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
-    const prefix = window.location.pathname.includes('/html/') || window.location.pathname.includes('/mobile/') ? '../' : '';
-    const links = [
-      { page: 'work-data-management', minRole: 'OPERATOR', href: `${prefix}work_data_management.html`, text: '근무 데이터 관리' },
-      { page: 'visitors-data-management', minRole: 'OPERATOR', href: `${prefix}visitors_data_management.html`, text: '출입 데이터 관리' },
-      { page: 'serials-data-management', minRole: 'OPERATOR', href: `${prefix}serials_data_management.html`, text: '연속간행물 데이터 관리' },
-      { page: 'system-backup-management', minRole: 'MASTER', href: `${prefix}system_backup_management.html`, text: '시스템 백업' },
-    ];
-    const historyLink = sidebar.querySelector('.nav-link[data-page="history"]');
-    const shiftsLink = sidebar.querySelector('.nav-link[data-page="shifts"]');
-    const visitorLink = sidebar.querySelector('.nav-link[data-page="visitor-settings"]') || sidebar.querySelector('.nav-link[data-page="visitor-portal"]');
-    const serialsLink = sidebar.querySelector('.nav-link[data-page="serials-layout"]') || sidebar.querySelector('.nav-link[data-page="serials-manage"]') || sidebar.querySelector('.nav-link[data-page="serials-portal"]');
-    const divider = sidebar.querySelector('.nav-divider');
-    const insertAfter = (target, link) => {
-      if (target) target.insertAdjacentElement('afterend', link);
-      else if (divider) sidebar.insertBefore(link, divider);
-      else sidebar.appendChild(link);
+    const inHtml = window.location.pathname.includes('/html/') || window.location.pathname.includes('/mobile/');
+    const html = (file) => (inHtml ? file : `html/${file}`);
+    const root = (file) => (inHtml ? `../${file}` : file);
+    const isVisitor = activePage?.startsWith('visitor-') || activePage === 'visitors-data-management';
+    const isSerials = activePage?.startsWith('serials-') || activePage === 'serials-data-management';
+
+    const linkHtml = (item) => {
+      const attrs = [
+        `class="nav-link${item.secondary ? ' nav-secondary' : ''}"`,
+        `data-page="${item.page}"`,
+        `href="${item.href}"`,
+      ];
+      if (item.minRole) attrs.push(`data-min-role="${item.minRole}"`);
+      if (item.roles) attrs.push(`data-roles="${item.roles}"`);
+      if (item.returnTarget) attrs.push(`data-return-target="${item.returnTarget}"`);
+      return `<a ${attrs.join(' ')}>${item.text}</a>`;
     };
-    links.forEach((item) => {
-      if (sidebar.querySelector(`.nav-link[data-page="${item.page}"]`)) return;
-      const link = document.createElement('a');
-      link.className = 'nav-link';
-      link.dataset.page = item.page;
-      link.dataset.minRole = item.minRole;
-      link.href = item.href;
-      link.textContent = item.text;
-      if (item.page === 'work-data-management') insertAfter(shiftsLink || historyLink, link);
-      else if (item.page === 'visitors-data-management') insertAfter(visitorLink || historyLink, link);
-      else if (item.page === 'serials-data-management') insertAfter(serialsLink || historyLink, link);
-      else insertAfter(historyLink, link);
-    });
+    const section = (title, items) => [
+      `<div class="sidebar-title">${title}</div>`,
+      ...items.map(linkHtml),
+    ].join('');
+    const divider = '<div class="nav-divider"></div>';
+    const label = (text) => `<div class="nav-section-label">${text}</div>`;
+
+    if (isVisitor) {
+      sidebar.innerHTML = [
+        section('출입자 통계', [
+          { page: 'visitor-dashboard', href: html('visitor_dashboard.html'), text: '월간 대시보드' },
+          { page: 'visitor-entry', href: html('visitor_entry.html'), text: '일일 입력' },
+          { page: 'visitor-bulk-entry', href: html('visitor_bulk_entry.html'), text: '일괄 입력', minRole: 'OPERATOR' },
+          { page: 'visitor-summary', href: html('visitor_summary.html'), text: '통계 리포트' },
+          { page: 'visitor-settings', href: html('visitor_settings.html'), text: '학년도 · 설정', minRole: 'OPERATOR' },
+          { page: 'visitors-data-management', href: root('visitors_data_management.html'), text: '출입 데이터 관리', minRole: 'OPERATOR' },
+        ]),
+        divider,
+        label('이동'),
+        linkHtml({ page: 'dashboard', href: html('dashboard.html'), text: '근무 시스템 돌아가기', secondary: true, returnTarget: html('dashboard.html') }),
+        linkHtml({ page: 'serials-portal', href: html('serials_home.html'), text: '연속 간행물 센터 바로가기', secondary: true }),
+      ].join('');
+      return;
+    }
+
+    if (isSerials) {
+      sidebar.innerHTML = [
+        section('연속 간행물', [
+          { page: 'serials-home', href: html('serials_home.html'), text: '홈' },
+          { page: 'serials-list', href: html('serials_list.html'), text: '조회 · 검색' },
+          { page: 'serials-manage', href: html('serials_manage.html'), text: '등록 · 수정', minRole: 'OPERATOR' },
+          { page: 'serials-layout', href: html('serials_layout.html'), text: '배치도 · 서가 관리', minRole: 'OPERATOR' },
+          { page: 'serials-data-management', href: root('serials_data_management.html'), text: '연속 간행물 데이터 관리', minRole: 'OPERATOR' },
+        ]),
+        divider,
+        label('이동'),
+        linkHtml({ page: 'dashboard', href: html('dashboard.html'), text: '근무 시스템 돌아가기', secondary: true, returnTarget: html('dashboard.html') }),
+        linkHtml({ page: 'visitor-portal', href: html('visitor_dashboard.html'), text: '출입자 통계 바로가기', secondary: true }),
+      ].join('');
+      return;
+    }
+
+    sidebar.innerHTML = [
+      section('탐색', [
+        { page: 'dashboard', href: html('dashboard.html'), text: '대시보드' },
+        { page: 'members', href: html('admin_members.html'), text: '구성원 관리', minRole: 'OPERATOR' },
+        { page: 'shifts', href: html('admin_shifts.html'), text: '근무 관리', minRole: 'OPERATOR' },
+        { page: 'overview', href: html('schedule_overview.html'), text: '근무 배정표' },
+        { page: 'requests', href: html('request_center.html'), text: '근무 변경 신청', roles: 'MASTER,MEMBER' },
+        { page: 'approvals', href: html('request_approvals.html'), text: '변경 승인함', roles: 'MASTER,OPERATOR' },
+        { page: 'work-data-management', href: root('work_data_management.html'), text: '근무 데이터 관리', minRole: 'OPERATOR' },
+        { page: 'notices', href: html('notice_board.html'), text: '공지사항' },
+        { page: 'notice_admin', href: html('notice_admin.html'), text: '공지 관리', minRole: 'OPERATOR' },
+        { page: 'profile', href: html('member_profile.html'), text: '내 프로필' },
+        { page: 'history', href: html('history.html'), text: '변동 이력', minRole: 'MASTER' },
+        { page: 'system-backup-management', href: root('system_backup_management.html'), text: '시스템 백업', minRole: 'MASTER' },
+      ]),
+      divider,
+      label('통계센터'),
+      linkHtml({ page: 'visitor-portal', href: html('visitor_dashboard.html'), text: '출입자 통계 바로가기' }),
+      linkHtml({ page: 'serials-portal', href: html('serials_home.html'), text: '연속 간행물 센터 바로가기' }),
+    ].join('');
   }
 
   function isLinkAllowed(link, role) {
@@ -205,11 +254,20 @@ if (!globalThis.__worktimeLayout) {
     });
   }
 
-  function wireCommonActions() {
+  function wireCommonActions(activePage) {
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) logoutBtn.onclick = () => logout(true);
     const home = document.querySelector('.logo, .mobile-brand');
-    const homeTarget = document.body?.dataset?.home || 'dashboard.html';
+    const inHtml = window.location.pathname.includes('/html/') || window.location.pathname.includes('/mobile/');
+    const html = (file) => (inHtml ? file : `html/${file}`);
+    let homeTarget = document.body?.dataset?.home || html('dashboard.html');
+    if (activePage?.startsWith('visitor-') || activePage === 'visitors-data-management') {
+      homeTarget = html('visitor_dashboard.html');
+    } else if (activePage?.startsWith('serials-') || activePage === 'serials-data-management') {
+      homeTarget = html('serials_home.html');
+    } else if (!document.body?.dataset?.home) {
+      homeTarget = html('dashboard.html');
+    }
     if (home) {
       home.style.cursor = 'pointer';
       home.addEventListener('click', () => { window.location.href = homeTarget; });
@@ -231,10 +289,10 @@ if (!globalThis.__worktimeLayout) {
   async function initAppLayout(activePage) {
     initThemeToggle();
     showAppShellLoader();
-    ensureDataManagementNavLink();
+    ensureDataManagementNavLink(activePage);
     highlightNav(activePage);
     setupSidebar();
-    wireCommonActions();
+    wireCommonActions(activePage);
     let user;
     try {
       user = await loadUser();

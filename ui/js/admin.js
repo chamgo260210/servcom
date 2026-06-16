@@ -1,5 +1,6 @@
 // File: /ui/js/admin.js
 import { apiRequest } from './api.js';
+import { formatDateTimeSeoul } from './datetime.js';
 
 const roleLabel = {
   MASTER: '마스터',
@@ -44,7 +45,7 @@ function weekStart(dateStr) {
 function formatDateTimeLocal(dateStr) {
   if (!dateStr) return '-';
   try {
-    return new Date(dateStr).toLocaleString();
+    return formatDateTimeSeoul(dateStr);
   } catch {
     return dateStr;
   }
@@ -98,7 +99,7 @@ function setEditForm(member) {
   const modeLabel = document.getElementById('member-form-mode');
   if (modeLabel) modeLabel.textContent = `${member.name} 선택됨`;
   if (detail) {
-    const lastLogin = member.auth_account?.last_login_at ? new Date(member.auth_account.last_login_at).toLocaleString() : '기록 없음';
+    const lastLogin = member.auth_account?.last_login_at ? formatDateTimeSeoul(member.auth_account.last_login_at) : '기록 없음';
     detail.innerHTML = `
       <strong>선택됨:</strong> ${member.name} / ${roleLabel[member.role] || member.role}<br />
       개인 ID: ${member.identifier || '-'} · 로그인 ID: ${member.auth_account?.login_id || '-'}<br />
