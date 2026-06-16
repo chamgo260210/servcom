@@ -49,6 +49,9 @@ const roleOrder = { MEMBER: 1, OPERATOR: 2, MASTER: 3 };
 const validationState = new Map();
 let currentUser = null;
 let lastUploadValidation = null;
+let currentPreviewBackupId = null;
+let includeRestorePoints = true;
+let lastStorageItems = [];
 
 const backupList = document.getElementById('backup-list');
 const restoreList = document.getElementById('restore-list');
@@ -65,11 +68,23 @@ const excelMessage = document.getElementById('excel-message');
 const yearInput = document.getElementById('visitor-academic-year');
 const domainTitle = document.getElementById('domain-title');
 const domainSubtitle = document.getElementById('domain-subtitle');
+const storageBackupList = document.getElementById('storage-backup-list');
+const storageMessage = document.getElementById('storage-message');
+const storageValidationState = new Map();
 
 function setMessage(target, text, isError = false) {
   if (!target) return;
   target.textContent = text || '';
   target.classList.toggle('error', Boolean(isError));
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function formatSize(size) {
@@ -118,6 +133,32 @@ function restorePointLabel(job) {
   return summary.restore_point_backup_id || summary.pre_restore_backup_id || '-';
 }
 
+function restorePointHtml(job) {
+  const summary = job.summary || {};
+  const info = summary.restore_point || {};
+  if (info.file_name) {
+    const status = info.status || '-';
+    const createdAt = info.created_at ? formatDateTimeSeoul(info.created_at) : '-';
+    const fileState = info.file_exists ? '파일 있음' : '파일 없음';
+    return `
+      <div>${escapeHtml(info.file_name)}</div>
+      <div class="muted small">${escapeHtml(createdAt)} · ${escapeHtml(status)} · ${escapeHtml(fileState)}</div>
+    `;
+  }
+  const fallback = restorePointLabel(job);
+  if (fallback === '-') return '-';
+  const status = info.status || 'UNKNOWN';
+  return `
+    <div class="muted small">${escapeHtml(fallback)}</div>
+    <div class="muted small">${escapeHtml(status)}</div>
+  `;
+}
+
+function canRollbackJob(job) {
+  const summary = job.summary || {};
+  return job.status === 'SUCCESS' && summary.rollback_available === true && !summary.rollback_used;
+}
+
 function renderBackups(backups) {
   if (!backupList) return;
   if (!backups.length) {
@@ -133,12 +174,13 @@ function renderBackups(backups) {
       : '';
     const restoreButton = `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`;
     tr.innerHTML = `
-      <td>${backup.file_name}</td>
+      <td>${escapeHtml(backup.file_name)}</td>
       <td>${formatSize(backup.file_size)}</td>
       <td>${backup.created_at ? formatDateTimeSeoul(backup.created_at) : '-'}</td>
-      <td>${backup.status}</td>
-      <td>${backup.description || '-'}</td>
+      <td>${escapeHtml(backup.status)}</td>
+      <td>${escapeHtml(backup.description || '-')}</td>
       <td>
+        <button class="btn tiny secondary" type="button" data-preview="${backup.id}">미리보기</button>
         ${downloadButton}
         <button class="btn tiny secondary" type="button" data-validate="${backup.id}">검증</button>
         ${restoreButton}
@@ -148,24 +190,204 @@ function renderBackups(backups) {
   });
 }
 
+function ensurePreviewModal() {
+  let modal = document.getElementById('backup-preview-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'backup-preview-modal';
+  modal.className = 'modal-backdrop';
+  modal.style.display = 'none';
+  modal.innerHTML = `
+    <div class="modal wide">
+      <div class="modal-header">
+        <h3>백업 미리보기</h3>
+      </div>
+      <div class="modal-body stack">
+        <div id="backup-preview-message" class="form-message" role="alert" aria-live="polite"></div>
+        <div id="backup-preview-content" class="stack"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" id="backup-preview-sensitive" type="button">민감정보 포함 보기</button>
+        <button class="btn muted" id="backup-preview-close" type="button">닫기</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector('#backup-preview-close')?.addEventListener('click', () => {
+    modal.style.display = 'none';
+  });
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) modal.style.display = 'none';
+  });
+  modal.querySelector('#backup-preview-sensitive')?.addEventListener('click', async () => {
+    if (!currentPreviewBackupId) return;
+    const confirmed = window.confirm('민감정보 포함 미리보기 요청은 감사 로그에 기록됩니다. 비밀번호, 토큰, secret 계열 필드는 관리자라도 원문 표시하지 않습니다. 계속하시겠습니까?');
+    if (!confirmed) return;
+    await openPreview(currentPreviewBackupId, true);
+  });
+  return modal;
+}
+
+function renderPreview(preview) {
+  const content = document.getElementById('backup-preview-content');
+  if (!content) return;
+  const summaryRows = Object.entries(preview.summary || {})
+    .map(([table, count]) => `<tr><td>${escapeHtml(table)}</td><td>${escapeHtml(count)}</td></tr>`)
+    .join('') || '<tr><td colspan="2" class="muted">요약 데이터가 없습니다.</td></tr>';
+  const sampleSections = Object.entries(preview.samples || {})
+    .map(([table, rows]) => `
+      <section class="stack">
+        <h4>${escapeHtml(table)}</h4>
+        <pre class="code-block">${escapeHtml(JSON.stringify(rows, null, 2))}</pre>
+      </section>
+    `)
+    .join('') || '<p class="muted">샘플 데이터가 없습니다.</p>';
+  const warningText = (preview.warnings || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const errorText = (preview.errors || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  content.innerHTML = `
+    <section class="stack">
+      <h4>기본 정보</h4>
+      <div class="table-wrap">
+        <table class="data-table">
+          <tbody>
+            <tr><th>도메인</th><td>${escapeHtml(preview.domain)}</td></tr>
+            <tr><th>종류</th><td>${escapeHtml(preview.kind || '-')}</td></tr>
+            <tr><th>스키마</th><td>${escapeHtml(preview.schema_version || '-')}</td></tr>
+            <tr><th>생성일</th><td>${preview.created_at ? escapeHtml(formatDateTimeSeoul(preview.created_at)) : '-'}</td></tr>
+            <tr><th>파일 크기</th><td>${formatSize(preview.file_size)}</td></tr>
+            <tr><th>체크섬</th><td>${escapeHtml(preview.checksum || '-')}</td></tr>
+            <tr><th>마스킹</th><td>${preview.masked ? '적용' : '미적용'}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="stack">
+      <h4>테이블별 건수</h4>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>테이블</th><th>건수</th></tr></thead><tbody>${summaryRows}</tbody></table></div>
+    </section>
+    <section class="stack">
+      <h4>샘플 데이터</h4>
+      ${sampleSections}
+    </section>
+    ${warningText ? `<section><h4>경고</h4><ul>${warningText}</ul></section>` : ''}
+    ${errorText ? `<section><h4>검증 오류</h4><ul>${errorText}</ul></section>` : ''}
+  `;
+}
+
+async function openPreview(backupId, sensitive = false) {
+  currentPreviewBackupId = backupId;
+  const modal = ensurePreviewModal();
+  const sensitiveButton = modal.querySelector('#backup-preview-sensitive');
+  const message = modal.querySelector('#backup-preview-message');
+  const content = modal.querySelector('#backup-preview-content');
+  if (sensitiveButton) sensitiveButton.style.display = currentUser?.role === 'MASTER' && !sensitive ? '' : 'none';
+  modal.style.display = 'flex';
+  setMessage(message, sensitive ? '민감정보 포함 미리보기를 불러오는 중...' : '미리보기를 불러오는 중...');
+  if (content) content.innerHTML = '';
+  try {
+    const preview = await apiRequest(`/data/backups/${backupId}/preview?sensitive=${sensitive ? 'true' : 'false'}`);
+    renderPreview(preview);
+    setMessage(message, '');
+  } catch (e) {
+    setMessage(message, e.message || '백업 미리보기를 불러오지 못했습니다.', true);
+  }
+}
+
 function renderRestoreJobs(jobs) {
   if (!restoreList) return;
   if (!jobs.length) {
-    restoreList.innerHTML = '<tr><td colspan="6" class="muted">복원 이력이 없습니다.</td></tr>';
+    restoreList.innerHTML = '<tr><td colspan="7" class="muted">복원 이력이 없습니다.</td></tr>';
     return;
   }
   restoreList.innerHTML = '';
   jobs.forEach((job) => {
     const tr = document.createElement('tr');
+    const rollbackButton = canRollbackJob(job)
+      ? `<button class="btn tiny danger" type="button" data-rollback="${job.id}">복원 전 상태로 되돌리기</button>`
+      : '-';
     tr.innerHTML = `
-      <td>${job.mode}</td>
-      <td>${job.status}</td>
+      <td>${escapeHtml(job.mode)}</td>
+      <td>${escapeHtml(job.status)}</td>
       <td>${job.started_at ? formatDateTimeSeoul(job.started_at) : '-'}</td>
       <td>${job.finished_at ? formatDateTimeSeoul(job.finished_at) : '-'}</td>
-      <td>${restorePointLabel(job)}</td>
-      <td>${job.error_message || '-'}</td>
+      <td>${restorePointHtml(job)}</td>
+      <td>${escapeHtml(job.error_message || '-')}</td>
+      <td>${rollbackButton}</td>
     `;
     restoreList.appendChild(tr);
+  });
+}
+
+function canRegisterStorageFile(item) {
+  const validation = storageValidationState.get(item.storage_key);
+  return !item.registered && item.status === 'UNREGISTERED' && validation?.valid && validation.domain === domain;
+}
+
+function isRestorePointItem(item) {
+  return (item.kind || '').toUpperCase() === 'RESTORE_POINT';
+}
+
+function storageKindHtml(item) {
+  if (!isRestorePointItem(item)) return escapeHtml(item.kind || '-');
+  return `
+    <span class="badge pending">RESTORE_POINT</span>
+    <div class="muted small">복원 전 자동 생성 지점</div>
+  `;
+}
+
+function ensureStorageRestorePointControls() {
+  if (!storageBackupList || document.getElementById('storage-restore-point-toggle')) return;
+  const tableWrap = storageBackupList.closest('.table-wrap');
+  const section = tableWrap?.parentElement;
+  if (!section) return;
+  const note = document.createElement('div');
+  note.className = 'form-message show';
+  note.innerHTML = 'Restore point는 복원 전 상태로 되돌리기 위해 자동 생성됩니다. 일반 백업 목록에는 기본 표시되지 않으며, 저장소 파일 목록과 복원 이력에서 확인할 수 있습니다. 자동 삭제는 현재 적용하지 않습니다.';
+  const controls = document.createElement('label');
+  controls.className = 'inline-input';
+  controls.innerHTML = '<input id="storage-restore-point-toggle" type="checkbox" checked /> 복원 지점 포함';
+  section.insertBefore(note, tableWrap);
+  section.insertBefore(controls, tableWrap);
+  controls.querySelector('#storage-restore-point-toggle')?.addEventListener('change', (event) => {
+    includeRestorePoints = event.target.checked;
+    renderStorageBackups(lastStorageItems);
+  });
+}
+
+function renderStorageBackups(items) {
+  if (!storageBackupList) return;
+  ensureStorageRestorePointControls();
+  lastStorageItems = items || [];
+  const visibleItems = includeRestorePoints ? lastStorageItems : lastStorageItems.filter((item) => !isRestorePointItem(item));
+  if (!visibleItems.length) {
+    storageBackupList.innerHTML = '<tr><td colspan="8" class="muted">저장소 백업 파일이 없습니다.</td></tr>';
+    return;
+  }
+  storageBackupList.innerHTML = '';
+  visibleItems.forEach((item) => {
+    const tr = document.createElement('tr');
+    const validation = storageValidationState.get(item.storage_key);
+    const validationText = validation
+      ? (validation.valid ? '정상' : '실패')
+      : (item.errors?.length ? '오류 있음' : '-');
+    const registerDisabled = canRegisterStorageFile(item) ? '' : 'disabled';
+    const registerButton = item.registered
+      ? '<button class="btn tiny secondary" type="button" disabled>등록됨</button>'
+      : `<button class="btn tiny" type="button" data-storage-register="${escapeHtml(item.storage_key)}" ${registerDisabled}>백업 목록에 등록</button>`;
+    tr.innerHTML = `
+      <td title="${escapeHtml(item.display_path)}">${escapeHtml(item.file_name)}</td>
+      <td>${escapeHtml(item.status)}</td>
+      <td>${storageKindHtml(item)}</td>
+      <td>${formatSize(item.file_size)}</td>
+      <td>${item.modified_at ? formatDateTimeSeoul(item.modified_at) : '-'}</td>
+      <td>${escapeHtml(item.schema_version || '-')}</td>
+      <td>${escapeHtml(validationText)}</td>
+      <td>
+        <button class="btn tiny secondary" type="button" data-storage-validate="${escapeHtml(item.storage_key)}">검증</button>
+        ${registerButton}
+      </td>
+    `;
+    storageBackupList.appendChild(tr);
   });
 }
 
@@ -177,6 +399,12 @@ async function loadBackups() {
 async function loadRestoreJobs() {
   const jobs = await apiRequest(`/data/restores?domain=${encodeURIComponent(domain)}`);
   renderRestoreJobs(jobs);
+}
+
+async function loadStorageBackups() {
+  if (!storageBackupList) return;
+  const result = await apiRequest(`/data/backups/storage?domain=${encodeURIComponent(domain)}`);
+  renderStorageBackups(result.items || []);
 }
 
 async function createBackup() {
@@ -193,6 +421,7 @@ async function createBackup() {
     });
     setMessage(backupMessage, '백업이 생성되었습니다.');
     await loadBackups();
+    await loadStorageBackups();
   } catch (e) {
     setMessage(backupMessage, e.message || '백업 생성에 실패했습니다.', true);
   } finally {
@@ -275,12 +504,47 @@ async function restoreUpload() {
   }
 }
 
+restoreList?.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-rollback]');
+  if (!button) return;
+  const warning = [
+    '이 작업은 해당 복원 직전 상태로 데이터를 다시 교체합니다.',
+    '현재 상태도 되돌리기 전 백업으로 자동 저장됩니다.',
+    domain === 'FULL' ? 'FULL 되돌리기는 계정과 권한 정보가 바뀔 수 있으므로 완료 후 재로그인이 필요할 수 있습니다.' : null,
+    '진행하려면 "되돌립니다"를 입력하세요.',
+  ].filter(Boolean).join('\n');
+  const confirmText = window.prompt(warning);
+  if (confirmText !== '되돌립니다') {
+    setMessage(validationResult, '되돌리기 확인 문구가 일치하지 않습니다.', true);
+    return;
+  }
+  button.disabled = true;
+  setMessage(validationResult, '복원 전 상태로 되돌리는 중...');
+  try {
+    const job = await apiRequest(`/data/restores/${button.dataset.rollback}/rollback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm_text: confirmText }),
+    });
+    setMessage(validationResult, `되돌리기 완료: ${job.status}`);
+    await loadBackups();
+    await loadRestoreJobs();
+    await loadStorageBackups();
+  } catch (e) {
+    setMessage(validationResult, e.message || '되돌리기에 실패했습니다.', true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 backupList?.addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-download], [data-validate], [data-restore]');
+  const button = event.target.closest('[data-preview], [data-download], [data-validate], [data-restore]');
   if (!button) return;
   button.disabled = true;
   try {
-    if (button.dataset.download) {
+    if (button.dataset.preview) {
+      await openPreview(button.dataset.preview);
+    } else if (button.dataset.download) {
       setMessage(backupMessage, '백업 다운로드 중...');
       await downloadFile(`/data/backups/${button.dataset.download}/download`);
       setMessage(backupMessage, '백업 다운로드를 시작했습니다.');
@@ -314,6 +578,48 @@ backupList?.addEventListener('click', async (event) => {
   }
 });
 
+storageBackupList?.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-storage-validate], [data-storage-register]');
+  if (!button) return;
+  button.disabled = true;
+  const storageKey = button.dataset.storageValidate || button.dataset.storageRegister;
+  try {
+    if (button.dataset.storageValidate) {
+      setMessage(storageMessage, '저장소 백업 파일 검증 중...');
+      const result = await apiRequest('/data/backups/storage/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain, storage_key: storageKey }),
+      });
+      storageValidationState.set(storageKey, result);
+      renderValidation(result, storageMessage);
+      await loadStorageBackups();
+    } else if (button.dataset.storageRegister) {
+      const validation = storageValidationState.get(storageKey);
+      if (!validation?.valid || validation.domain !== domain) {
+        setMessage(storageMessage, '저장소 백업 파일을 먼저 검증하세요.', true);
+        return;
+      }
+      const description = window.prompt('백업 목록에 등록할 설명을 입력하세요.', 'Storage file re-registered');
+      if (description === null) return;
+      setMessage(storageMessage, '저장소 백업 파일 등록 중...');
+      await apiRequest('/data/backups/storage/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain, storage_key: storageKey, description }),
+      });
+      storageValidationState.delete(storageKey);
+      setMessage(storageMessage, '저장소 백업 파일을 백업 목록에 등록했습니다.');
+      await loadBackups();
+      await loadStorageBackups();
+    }
+  } catch (e) {
+    setMessage(storageMessage, e.message || '저장소 백업 파일 요청에 실패했습니다.', true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 uploadFileInput?.addEventListener('change', () => {
   lastUploadValidation = null;
   if (uploadRestoreButton) uploadRestoreButton.disabled = true;
@@ -342,4 +648,11 @@ try {
 } catch (e) {
   if (backupList) backupList.innerHTML = '<tr><td colspan="6" class="error">백업 목록을 불러오지 못했습니다.</td></tr>';
   if (restoreList) restoreList.innerHTML = '<tr><td colspan="6" class="error">복원 이력을 불러오지 못했습니다.</td></tr>';
+}
+
+try {
+  await loadStorageBackups();
+} catch (e) {
+  if (storageBackupList) storageBackupList.innerHTML = '<tr><td colspan="8" class="error">저장소 백업 파일을 불러오지 못했습니다.</td></tr>';
+  setMessage(storageMessage, e.message || '저장소 백업 파일을 불러오지 못했습니다.', true);
 }
