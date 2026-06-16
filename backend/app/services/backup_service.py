@@ -15,6 +15,7 @@ from ..core.backup_manifest import (
     SERIAL_TABLES,
     SUPPORTED_DOMAINS,
     VISITOR_TABLES,
+    WORK_SCHEMA_VERSION,
     WORK_TABLES,
     calculate_checksum,
     serialize_value,
@@ -74,12 +75,28 @@ def _row_to_dict(row, *, include_columns: set[str] | None = None) -> dict:
 
 def _collect_table_data(db: Session, table_name: str, *, domain: str) -> list[dict]:
     model = TABLE_MODEL_MAP[table_name]
+    if domain == "WORK" and table_name == "users":
+        rows = (
+            db.query(models.User)
+            .filter(models.User.role == models.UserRole.MEMBER)
+            .order_by(models.User.created_at.asc())
+            .all()
+        )
+        return [_row_to_dict(row) for row in rows]
+    if domain == "WORK" and table_name == "auth_accounts":
+        rows = (
+            db.query(models.AuthAccount)
+            .join(models.User, models.User.id == models.AuthAccount.user_id)
+            .filter(models.User.role == models.UserRole.MEMBER)
+            .order_by(models.AuthAccount.user_id.asc())
+            .all()
+        )
+        return [_row_to_dict(row) for row in rows]
     order_column = getattr(model, "created_at", None)
     if order_column is None:
         order_column = next(iter(model.__table__.primary_key.columns))
     rows = db.query(model).order_by(order_column.asc()).all()
-    include_columns = WORK_USER_COLUMNS if domain == "WORK" and table_name == "users" else None
-    return [_row_to_dict(row, include_columns=include_columns) for row in rows]
+    return [_row_to_dict(row) for row in rows]
 
 
 def _storage_subdir(domain: str, kind: str) -> Path:
@@ -108,9 +125,10 @@ def build_backup_payload(
     if domain not in BACKUP_DOMAINS:
         raise ValueError("unsupported_domain")
     created_at = created_at or datetime.now(timezone.utc)
+    schema_version = WORK_SCHEMA_VERSION if domain == "WORK" else SCHEMA_VERSION
     meta = {
         "backup_type": domain,
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": schema_version,
         "created_at": created_at.isoformat(),
         "created_by": {
             "user_id": str(current_user.id),
@@ -120,6 +138,15 @@ def build_backup_payload(
         "description": description,
         "kind": (kind or "MANUAL").strip().upper(),
     }
+    if domain == "WORK":
+        meta.update(
+            {
+                "work_policy": "member_accounts_v1",
+                "includes_auth_accounts": True,
+                "includes_audit_logs": False,
+                "downloadable": False,
+            }
+        )
     data = {table_name: _collect_table_data(db, table_name, domain=domain) for table_name in _backup_tables_for_domain(domain)}
     checksum = calculate_checksum(meta, data)
     return {
@@ -171,7 +198,7 @@ def create_json_backup(
         file_path=str(file_path),
         file_size=file_path.stat().st_size,
         checksum=payload["checksum"]["value"],
-        schema_version=SCHEMA_VERSION,
+        schema_version=WORK_SCHEMA_VERSION if domain == "WORK" else SCHEMA_VERSION,
         status="READY",
         description=description,
         created_by=current_user.id,

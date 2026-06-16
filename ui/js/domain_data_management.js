@@ -10,7 +10,7 @@ const CONFIGS = {
     canUpload: false,
     canExcel: false,
     masterOnly: false,
-    restoreWarning: '근무 배정, 근무 변경 요청, 관련 이력이 백업 시점으로 교체됩니다.',
+    restoreWarning: 'WORK 복원은 MEMBER 계정과 근무 데이터를 백업 기준으로 복원합니다. 백업에 없는 기존 MEMBER는 비활성화됩니다.',
   },
   VISITORS: {
     activePage: 'visitors-data-management',
