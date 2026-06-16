@@ -50,7 +50,7 @@ const validationState = new Map();
 let currentUser = null;
 let lastUploadValidation = null;
 let currentPreviewBackupId = null;
-let includeRestorePoints = true;
+let showRestorePointFiles = true;
 let lastStorageItems = [];
 
 const backupList = document.getElementById('backup-list');
@@ -173,6 +173,9 @@ function renderBackups(backups) {
       ? `<button class="btn tiny secondary" type="button" data-download="${backup.id}">다운로드</button>`
       : '';
     const restoreButton = `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`;
+    const excludeButton = currentUser?.role === 'MASTER'
+      ? `<button class="btn tiny muted" type="button" data-exclude="${backup.id}">목록에서 제외</button>`
+      : '';
     tr.innerHTML = `
       <td>${escapeHtml(backup.file_name)}</td>
       <td>${formatSize(backup.file_size)}</td>
@@ -184,10 +187,40 @@ function renderBackups(backups) {
         ${downloadButton}
         <button class="btn tiny secondary" type="button" data-validate="${backup.id}">검증</button>
         ${restoreButton}
+        ${excludeButton}
       </td>
     `;
     backupList.appendChild(tr);
   });
+}
+
+function sampleValueHtml(value) {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'object') return escapeHtml(JSON.stringify(value));
+  return escapeHtml(value);
+}
+
+function sampleRowsHtml(rows) {
+  if (!rows?.length) return '<p class="muted">표시할 샘플이 없습니다.</p>';
+  const columns = Array.from(rows.reduce((set, row) => {
+    if (row && typeof row === 'object' && !Array.isArray(row)) {
+      Object.keys(row).forEach((key) => set.add(key));
+    }
+    return set;
+  }, new Set()));
+  if (!columns.length) return '<p class="muted">표시할 샘플이 없습니다.</p>';
+  const head = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
+  const body = rows.map((row) => `
+    <tr>${columns.map((column) => `<td>${sampleValueHtml(row?.[column])}</td>`).join('')}</tr>
+  `).join('');
+  return `
+    <div class="table-wrap preview-sample-table">
+      <table class="data-table table-compact">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function ensurePreviewModal() {
@@ -204,7 +237,7 @@ function ensurePreviewModal() {
       </div>
       <div class="modal-body stack">
         <div id="backup-preview-message" class="form-message" role="alert" aria-live="polite"></div>
-        <div id="backup-preview-content" class="stack"></div>
+        <div id="backup-preview-content" class="stack preview-content"></div>
       </div>
       <div class="modal-footer">
         <button class="btn secondary" id="backup-preview-sensitive" type="button">민감정보 포함 보기</button>
@@ -236,10 +269,10 @@ function renderPreview(preview) {
     .join('') || '<tr><td colspan="2" class="muted">요약 데이터가 없습니다.</td></tr>';
   const sampleSections = Object.entries(preview.samples || {})
     .map(([table, rows]) => `
-      <section class="stack">
-        <h4>${escapeHtml(table)}</h4>
-        <pre class="code-block">${escapeHtml(JSON.stringify(rows, null, 2))}</pre>
-      </section>
+      <details class="preview-table-section" open>
+        <summary>${escapeHtml(table)} <span class="muted small">${escapeHtml(rows.length)}건 샘플</span></summary>
+        ${sampleRowsHtml(rows)}
+      </details>
     `)
     .join('') || '<p class="muted">샘플 데이터가 없습니다.</p>';
   const warningText = (preview.warnings || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
@@ -342,14 +375,14 @@ function ensureStorageRestorePointControls() {
   if (!section) return;
   const note = document.createElement('div');
   note.className = 'form-message show';
-  note.innerHTML = 'Restore point는 복원 전 상태로 되돌리기 위해 자동 생성됩니다. 일반 백업 목록에는 기본 표시되지 않으며, 저장소 파일 목록과 복원 이력에서 확인할 수 있습니다. 자동 삭제는 현재 적용하지 않습니다.';
+  note.innerHTML = '복원 지점은 복원 실행 직전에 자동 생성되는 백업이며, 되돌리기 용도로 사용됩니다. 일반 백업 목록에는 표시되지 않습니다.';
   const controls = document.createElement('label');
   controls.className = 'inline-input';
-  controls.innerHTML = '<input id="storage-restore-point-toggle" type="checkbox" checked /> 복원 지점 포함';
+  controls.innerHTML = '<input id="storage-restore-point-toggle" type="checkbox" checked /> 복원 지점 파일도 표시';
   section.insertBefore(note, tableWrap);
   section.insertBefore(controls, tableWrap);
   controls.querySelector('#storage-restore-point-toggle')?.addEventListener('change', (event) => {
-    includeRestorePoints = event.target.checked;
+    showRestorePointFiles = event.target.checked;
     renderStorageBackups(lastStorageItems);
   });
 }
@@ -358,7 +391,7 @@ function renderStorageBackups(items) {
   if (!storageBackupList) return;
   ensureStorageRestorePointControls();
   lastStorageItems = items || [];
-  const visibleItems = includeRestorePoints ? lastStorageItems : lastStorageItems.filter((item) => !isRestorePointItem(item));
+  const visibleItems = showRestorePointFiles ? lastStorageItems : lastStorageItems.filter((item) => !isRestorePointItem(item));
   if (!visibleItems.length) {
     storageBackupList.innerHTML = '<tr><td colspan="8" class="muted">저장소 백업 파일이 없습니다.</td></tr>';
     return;
@@ -538,7 +571,7 @@ restoreList?.addEventListener('click', async (event) => {
 });
 
 backupList?.addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-preview], [data-download], [data-validate], [data-restore]');
+  const button = event.target.closest('[data-preview], [data-download], [data-validate], [data-restore], [data-exclude]');
   if (!button) return;
   button.disabled = true;
   try {
@@ -570,6 +603,16 @@ backupList?.addEventListener('click', async (event) => {
       setMessage(validationResult, `복원 완료: ${job.status}`);
       await loadBackups();
       await loadRestoreJobs();
+    } else if (button.dataset.exclude) {
+      if (!window.confirm('이 백업을 백업 목록에서 제외합니다. 실제 저장소 파일은 삭제되지 않습니다.')) {
+        return;
+      }
+      setMessage(backupMessage, '백업을 목록에서 제외하는 중...');
+      await apiRequest(`/data/backups/${button.dataset.exclude}`, { method: 'DELETE' });
+      validationState.delete(button.dataset.exclude);
+      setMessage(backupMessage, '백업 목록에서 제외했습니다. 저장소 파일은 유지됩니다.');
+      await loadBackups();
+      await loadStorageBackups();
     }
   } catch (e) {
     setMessage(validationResult, e.message || '요청 처리에 실패했습니다.', true);

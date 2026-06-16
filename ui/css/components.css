@@ -1098,9 +1098,15 @@ table.table tbody tr.selected td {
   border-radius: 12px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
   width: min(520px, 100%);
+  max-height: calc(100vh - 32px);
   display: grid;
   gap: 12px;
   padding: 20px;
+}
+
+.modal.wide {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
 }
 
 .modal-header h3 {
@@ -1109,12 +1115,42 @@ table.table tbody tr.selected td {
 
 .modal-body {
   color: #0f172a;
+  min-height: 0;
+  overflow: auto;
+}
+
+.modal.wide .modal-body {
+  max-height: calc(100vh - 180px);
 }
 
 .modal-footer {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.preview-content {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.preview-table-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.preview-table-section summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.preview-sample-table {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow: auto;
 }
 
 .flex.wrap {

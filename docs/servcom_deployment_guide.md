@@ -73,6 +73,7 @@
   ├─ docs/
   ├─ scripts/
   │   └─ cloudflared-kv-updater.sh
+  ├─ backups/
   ├─ venv/
   └─ .env
 ```
@@ -162,6 +163,38 @@ git clone <이 저장소 URL> .
 
 ```bash
 git checkout <배포할 브랜치_or_tag_or_commit>
+```
+
+---
+
+## 5-1. 백업 저장소 디렉터리 준비
+
+운영 기본값은 `BACKUP_STORAGE_DIR=/srv/app/backups`입니다. FastAPI 프로세스가 이 디렉터리에 파일을 만들 수 있어야 백업 생성, 복원 전 restore point 생성, 저장소 파일 목록 조회가 정상 동작합니다.
+
+현재 systemd 예시는 FastAPI를 `www-data`로 실행합니다. 운영 환경에서 다른 실행 사용자를 쓰는 경우 `<FastAPI실행사용자>`를 실제 서비스 사용자로 바꿔 적용하세요.
+
+권장 예시:
+
+```bash
+sudo install -d -o www-data -g www-data -m 0750 /srv/app/backups
+sudo -u www-data test -w /srv/app/backups
+```
+
+일반형:
+
+```bash
+sudo mkdir -p /srv/app/backups
+sudo chown -R <FastAPI실행사용자>:<FastAPI실행사용자> /srv/app/backups
+sudo chmod -R 750 /srv/app/backups
+sudo -u <FastAPI실행사용자> test -w /srv/app/backups
+```
+
+`/srv/app/backups`가 삭제되면 앱이 `/srv/app` 아래에 디렉터리를 다시 만들 권한이 없을 수 있습니다. 이 경우 백업 생성이 실패하므로, 재배포나 서버 복구 시 위 명령으로 디렉터리와 권한을 먼저 복구하세요.
+
+systemd에서 서비스 시작 전 디렉터리 생성을 보조하려면 다음 줄을 `work-time-api.service`의 `[Service]`에 추가하는 방식을 검토할 수 있습니다. 단, 운영 배포판과 권한 정책에 맞는지 확인한 뒤 적용하세요.
+
+```ini
+ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 750 /srv/app/backups
 ```
 
 ---
@@ -302,12 +335,18 @@ APP_ENV=production
 PROJECT_NAME=Dasan Shift Manager
 DATABASE_URL=postgresql+psycopg2://worktime:<DB비밀번호>@127.0.0.1:5432/work_time
 JWT_SECRET=<랜덤_긴_문자열>
+JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 API_ROOT_PATH=
 TRUSTED_HOSTS=localhost,127.0.0.1,*.trycloudflare.com,*.cfargotunnel.com,*.workers.dev
 TRUST_ALL_HOSTS=false
 BACKEND_CORS_ORIGINS=
 BACKEND_CORS_ALLOW_CREDENTIALS=false
+
+BACKUP_STORAGE_DIR=/srv/app/backups
+BACKUP_UPLOAD_MAX_BYTES=10485760
+BACKUP_RETENTION_DAYS=30
+BACKUP_MAX_FILES_PER_DOMAIN=50
 
 MASTER_LOGIN_ID=master
 MASTER_PASSWORD=<초기마스터비밀번호>
