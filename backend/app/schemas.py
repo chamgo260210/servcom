@@ -241,6 +241,57 @@ class BackupRestoreRequest(BaseModel):
     confirm_text: str
 
 
+class RestoreRollbackRequest(BaseModel):
+    confirm_text: str
+
+
+class StorageBackupFileOut(BaseModel):
+    storage_key: str
+    file_name: str
+    display_path: str
+    file_size: int
+    modified_at: datetime
+    registered: bool
+    backup_id: UUID | None = None
+    domain: str | None = None
+    kind: str | None = None
+    schema_version: str | None = None
+    checksum_match: bool | None = None
+    status: str
+    errors: list[str] = Field(default_factory=list)
+
+
+class StorageBackupListOut(BaseModel):
+    items: list[StorageBackupFileOut] = Field(default_factory=list)
+
+
+class StorageBackupValidateRequest(BaseModel):
+    domain: str
+    storage_key: str
+
+
+class StorageBackupRegisterRequest(BaseModel):
+    domain: str
+    storage_key: str
+    description: str | None = None
+
+
+class BackupPreviewOut(BaseModel):
+    backup_id: UUID
+    domain: str
+    kind: str | None = None
+    schema_version: str | None = None
+    created_at: datetime | str | None = None
+    file_size: int | None = None
+    checksum: str | None = None
+    summary: dict = Field(default_factory=dict)
+    samples: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    sensitive: bool = False
+    masked: bool = True
+
+
 class HistoryEntry(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

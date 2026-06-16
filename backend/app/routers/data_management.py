@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -17,6 +18,12 @@ from ..config import get_settings
 from ..deps import get_db
 from ..core.roles import require_role
 from ..services.backup_service import build_sanitized_backup_payload, create_json_backup, normalize_domain
+from ..services.backup_storage_service import (
+    build_backup_preview,
+    list_storage_backup_files,
+    register_storage_backup_file,
+    validate_storage_backup_file,
+)
 from ..services.excel_export_service import build_serials_excel, build_visitors_excel
 from ..services.restore_service import (
     parse_backup_json_bytes,
@@ -63,6 +70,116 @@ def _validation_response(result: dict) -> dict:
     }
 
 
+def _ensure_domain_access(domain: str, current_user, *, action: str = "access") -> str:
+    normalized = normalize_domain(domain)
+    if normalized not in BACKUP_DOMAINS:
+        raise HTTPException(status_code=400, detail="Unsupported backup domain")
+    if normalized == "FULL" and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail=f"Only masters can {action} FULL backups")
+    return normalized
+
+
+def _restore_point_id_from_summary(summary: dict | None) -> str | None:
+    if not isinstance(summary, dict):
+        return None
+    return summary.get("restore_point_backup_id") or summary.get("pre_restore_backup_id")
+
+
+def _safe_backup_file_exists(backup: models.DataBackup) -> bool:
+    try:
+        storage_root = Path(get_settings().BACKUP_STORAGE_DIR).resolve()
+        file_path = Path(backup.file_path).resolve()
+    except (OSError, RuntimeError):
+        return False
+    if file_path != storage_root and storage_root not in file_path.parents:
+        return False
+    return file_path.is_file()
+
+
+def _get_restore_point_backup(
+    db: Session,
+    restore_job: models.DataRestoreJob,
+    *,
+    include_deleted: bool = False,
+) -> models.DataBackup | None:
+    restore_point_id = _restore_point_id_from_summary(restore_job.summary)
+    if not restore_point_id:
+        return None
+    try:
+        backup_uuid = UUID(str(restore_point_id))
+    except ValueError:
+        return None
+    query = db.query(models.DataBackup).filter(models.DataBackup.id == backup_uuid)
+    if not include_deleted:
+        query = query.filter(models.DataBackup.deleted_at.is_(None))
+    return query.first()
+
+
+def _restore_point_info(db: Session, restore_job: models.DataRestoreJob) -> dict:
+    restore_point_id = _restore_point_id_from_summary(restore_job.summary)
+    if not restore_point_id:
+        return {"id": None, "status": "NONE", "file_exists": False}
+    try:
+        UUID(str(restore_point_id))
+    except ValueError:
+        return {"id": str(restore_point_id), "status": "INVALID_ID", "file_exists": False}
+    backup = _get_restore_point_backup(db, restore_job, include_deleted=True)
+    if not backup:
+        return {"id": str(restore_point_id), "status": "MISSING_ROW", "file_exists": False}
+    file_exists = _safe_backup_file_exists(backup)
+    if backup.deleted_at is not None:
+        status = "DELETED"
+    elif backup.kind != "RESTORE_POINT":
+        status = "INVALID_KIND"
+    elif not file_exists:
+        status = "MISSING_FILE"
+    else:
+        status = backup.status or "READY"
+    return {
+        "id": str(backup.id),
+        "file_name": backup.file_name,
+        "created_at": backup.created_at.isoformat() if backup.created_at else None,
+        "status": status,
+        "kind": backup.kind,
+        "file_exists": file_exists,
+        "deleted_at": backup.deleted_at.isoformat() if backup.deleted_at else None,
+    }
+
+
+def _restore_job_response(db: Session, job: models.DataRestoreJob, current_user) -> dict:
+    summary = dict(job.summary or {})
+    domain = normalize_domain(job.domain)
+    try:
+        restore_point_backup = _get_restore_point_backup(db, job)
+        restore_point_info = _restore_point_info(db, job)
+        rollback_available = (
+            job.status == "SUCCESS"
+            and bool(_restore_point_id_from_summary(summary))
+            and not summary.get("rollback_used")
+            and restore_point_backup is not None
+            and restore_point_backup.kind == "RESTORE_POINT"
+            and _safe_backup_file_exists(restore_point_backup)
+            and (domain != "FULL" or current_user.role == models.UserRole.MASTER)
+        )
+    except Exception:
+        restore_point_info = {"id": _restore_point_id_from_summary(summary), "status": "UNAVAILABLE", "file_exists": False}
+        rollback_available = False
+    summary["restore_point"] = restore_point_info
+    summary["rollback_available"] = rollback_available
+    return {
+        "id": job.id,
+        "backup_id": job.backup_id,
+        "domain": job.domain,
+        "mode": job.mode,
+        "status": job.status,
+        "requested_by": job.requested_by,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "error_message": job.error_message,
+        "summary": summary,
+    }
+
+
 async def _read_uploaded_json(file: UploadFile | None) -> dict:
     if file is None:
         raise HTTPException(status_code=400, detail="Backup file is required")
@@ -77,6 +194,119 @@ async def _read_uploaded_json(file: UploadFile | None) -> dict:
     if payload is None:
         raise HTTPException(status_code=400, detail=errors[0] if errors else "Invalid JSON")
     return payload
+
+
+@router.get("/backups/storage", response_model=schemas.StorageBackupListOut)
+def list_storage_backups(
+    domain: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
+):
+    requested_domain = _ensure_domain_access(domain, current_user, action="view")
+    try:
+        return {"items": list_storage_backup_files(db, requested_domain)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Unsupported backup domain") from exc
+
+
+@router.post("/backups/storage/validate", response_model=schemas.BackupValidationResult)
+def validate_storage_backup(
+    payload: schemas.StorageBackupValidateRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
+):
+    requested_domain = _ensure_domain_access(payload.domain, current_user, action="validate")
+    try:
+        result = validate_storage_backup_file(db, domain=requested_domain, storage_key=payload.storage_key)
+        return _validation_response(result)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/backups/storage/register", response_model=schemas.DataBackupOut, status_code=status.HTTP_201_CREATED)
+def register_storage_backup(
+    payload: schemas.StorageBackupRegisterRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
+):
+    requested_domain = _ensure_domain_access(payload.domain, current_user, action="register")
+    try:
+        backup, details = register_storage_backup_file(
+            db,
+            domain=requested_domain,
+            storage_key=payload.storage_key,
+            description=payload.description,
+            current_user=current_user,
+        )
+        record_log(
+            db,
+            actor_id=str(current_user.id),
+            action="DATA_BACKUP_STORAGE_REGISTER",
+            details={
+                "backup_id": str(backup.id),
+                "domain": backup.domain,
+                "file_name": backup.file_name,
+                "display_path": details.get("display_path"),
+                "original_created_at": details.get("original_created_at"),
+            },
+        )
+        db.commit()
+        db.refresh(backup)
+        return backup
+    except FileExistsError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/backups/{backup_id}/preview", response_model=schemas.BackupPreviewOut)
+def preview_backup(
+    backup_id,
+    sensitive: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
+):
+    backup = _get_backup_or_404(db, backup_id)
+    domain = normalize_domain(backup.domain)
+    if domain == "FULL" and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail="Only masters can preview FULL backups")
+    if sensitive and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail="Only masters can request sensitive preview")
+    try:
+        preview = build_backup_preview(db, backup=backup, sensitive=sensitive)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if sensitive:
+        record_log(
+            db,
+            actor_id=str(current_user.id),
+            action="DATA_BACKUP_PREVIEW_SENSITIVE",
+            details={
+                "backup_id": str(backup.id),
+                "domain": backup.domain,
+                "viewer_id": str(current_user.id),
+                "user_id": str(current_user.id),
+                "sensitive": True,
+            },
+        )
+        db.commit()
+    return preview
 
 
 @router.get("/backups", response_model=list[schemas.DataBackupOut])
@@ -376,6 +606,83 @@ def restore_backup_endpoint(
         raise HTTPException(status_code=400, detail="Restore failed") from exc
 
 
+@router.post("/restores/{restore_job_id}/rollback", response_model=schemas.DataRestoreJobOut)
+def rollback_restore_job(
+    restore_job_id,
+    payload: schemas.RestoreRollbackRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
+):
+    restore_job = db.query(models.DataRestoreJob).filter(models.DataRestoreJob.id == restore_job_id).first()
+    if not restore_job:
+        raise HTTPException(status_code=404, detail="Restore job not found")
+    domain = _ensure_domain_access(restore_job.domain, current_user, action="rollback")
+    summary = dict(restore_job.summary or {})
+    if restore_job.status != "SUCCESS":
+        raise HTTPException(status_code=400, detail="Only successful restore jobs can be rolled back")
+    if summary.get("rollback_used"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rollback was already used for this restore job")
+    restore_point_backup = _get_restore_point_backup(db, restore_job)
+    if not restore_point_backup:
+        raise HTTPException(status_code=404, detail="Restore point backup not found")
+    if restore_point_backup.kind != "RESTORE_POINT":
+        raise HTTPException(status_code=400, detail="Rollback requires a restore point backup")
+    if normalize_domain(restore_point_backup.domain) != domain:
+        raise HTTPException(status_code=400, detail="Restore point domain does not match restore job")
+    if not _safe_backup_file_exists(restore_point_backup):
+        raise HTTPException(status_code=404, detail="Restore point backup file not found")
+    if payload.confirm_text != "되돌립니다":
+        raise HTTPException(status_code=400, detail="Invalid rollback confirmation text")
+
+    try:
+        rollback_job, validation = restore_backup(db, backup=restore_point_backup, current_user=current_user, mode="REPLACE")
+        rollback_summary = dict(rollback_job.summary or {})
+        rollback_summary["rollback_of_restore_job_id"] = str(restore_job.id)
+        rollback_job.summary = rollback_summary
+        if rollback_job.status == "SUCCESS":
+            summary["rollback_used"] = True
+            summary["rollback_job_id"] = str(rollback_job.id)
+            summary["rollback_at"] = datetime.now(timezone.utc).isoformat()
+            restore_job.summary = summary
+            record_log(
+                db,
+                actor_id=str(current_user.id),
+                action="DATA_RESTORE_ROLLBACK",
+                details={
+                    "restore_job_id": str(restore_job.id),
+                    "rollback_job_id": str(rollback_job.id),
+                    "restore_point_backup_id": str(restore_point_backup.id),
+                    "domain": domain,
+                },
+            )
+        else:
+            record_log(
+                db,
+                actor_id=str(current_user.id),
+                action="DATA_RESTORE_FAILED",
+                details={
+                    "restore_job_id": str(restore_job.id),
+                    "rollback_job_id": str(rollback_job.id),
+                    "restore_point_backup_id": str(restore_point_backup.id),
+                    "domain": domain,
+                    "errors": validation.get("errors", []),
+                },
+            )
+        db.commit()
+        db.refresh(rollback_job)
+        return rollback_job
+    except Exception as exc:
+        db.rollback()
+        record_log(
+            db,
+            actor_id=str(current_user.id),
+            action="DATA_RESTORE_FAILED",
+            details={"restore_job_id": str(restore_job.id), "domain": domain, "error": str(exc)},
+        )
+        db.commit()
+        raise HTTPException(status_code=400, detail="Rollback failed") from exc
+
+
 @router.get("/restores", response_model=list[schemas.DataRestoreJobOut])
 def list_restore_jobs(
     domain: str | None = Query(None),
@@ -392,7 +699,8 @@ def list_restore_jobs(
         query = query.filter(models.DataRestoreJob.domain == requested_domain)
     if current_user.role != models.UserRole.MASTER:
         query = query.filter(models.DataRestoreJob.domain.in_(("VISITORS", "SERIALS", "WORK")))
-    return query.order_by(models.DataRestoreJob.started_at.desc()).limit(100).all()
+    jobs = query.order_by(models.DataRestoreJob.started_at.desc()).limit(100).all()
+    return [_restore_job_response(db, job, current_user) for job in jobs]
 
 
 @router.get("/exports/visitors/excel")
