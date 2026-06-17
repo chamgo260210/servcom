@@ -579,6 +579,7 @@ def _insert_rows(db: Session, domain: str, data: dict[str, list[dict]]) -> None:
         model = TABLE_MODEL_MAP[table_name]
         for row in data[table_name]:
             db.add(model(**row))
+        db.flush()
 
 
 def _delete_domain_rows(db: Session, domain: str) -> None:
@@ -601,6 +602,7 @@ def _delete_domain_rows(db: Session, domain: str) -> None:
         )
     for table_name in _delete_order(domain):
         db.query(TABLE_MODEL_MAP[table_name]).delete(synchronize_session=False)
+    db.flush()
 
 
 def _work_member_rows(data: dict[str, list[dict]]) -> list[dict]:

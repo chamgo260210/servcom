@@ -2,6 +2,10 @@ import { apiRequest } from './api.js';
 import { getNoticeTypeLabel, formatNoticeDate, markNoticeRead } from './notices.js';
 import { initAppLayout } from './layout.js';
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 const listEl = document.getElementById('notice-list');
 const emptyEl = document.getElementById('notice-empty');
 
@@ -19,7 +23,7 @@ async function loadNotices() {
     if (emptyEl) emptyEl.style.display = 'none';
     renderNotices(notices);
   } catch (e) {
-    if (listEl) listEl.innerHTML = `<div class="error">공지사항을 불러오지 못했습니다: ${e.message || e}</div>`;
+    if (listEl) listEl.innerHTML = `<div class="error">공지사항을 불러오지 못했습니다: ${escapeHtml(e.message || e)}</div>`;
   }
 }
 
@@ -33,7 +37,7 @@ function renderNotices(notices) {
     header.className = 'notice-card-header';
     const title = document.createElement('div');
     title.className = 'notice-card-title';
-    title.innerHTML = `<span class="notice-tag">${getNoticeTypeLabel(notice.type)}</span><strong>${notice.title}</strong>`;
+    title.innerHTML = `<span class="notice-tag">${escapeHtml(getNoticeTypeLabel(notice.type))}</span><strong>${escapeHtml(notice.title)}</strong>`;
     const date = document.createElement('div');
     date.className = 'muted small';
     date.textContent = notice.start_at ? formatNoticeDate(notice.start_at) : formatNoticeDate(notice.created_at);
