@@ -2,6 +2,10 @@ import { apiRequest } from './api.js';
 import { getNoticeTypeLabel, formatNoticeDate } from './notices.js';
 import { initAppLayout } from './layout.js';
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 const form = document.getElementById('notice-form');
 const listEl = document.getElementById('notice-admin-list');
 const emptyEl = document.getElementById('notice-admin-empty');
@@ -59,7 +63,7 @@ function buildUserOptions() {
     ? usersCache.filter((user) => user.role === 'MEMBER' && user.id !== currentUser?.id)
     : usersCache.filter((user) => user.id !== currentUser?.id);
   userTargets.innerHTML = filtered
-    .map((user) => `<label><input type="checkbox" value="${user.id}" /> ${user.name} (${user.role})</label>`)
+    .map((user) => `<label><input type="checkbox" value="${escapeHtml(user.id)}" /> ${escapeHtml(user.name)} (${escapeHtml(user.role)})</label>`)
     .join('');
 }
 
@@ -89,7 +93,7 @@ async function loadNotices() {
     const notices = await apiRequest('/notices?include_inactive=true&include_all=true');
     renderNotices(notices);
   } catch (e) {
-    if (listEl) listEl.innerHTML = `<div class="error">공지사항을 불러오지 못했습니다: ${e.message || e}</div>`;
+    if (listEl) listEl.innerHTML = `<div class="error">공지사항을 불러오지 못했습니다: ${escapeHtml(e.message || e)}</div>`;
   }
 }
 
@@ -117,11 +121,11 @@ function renderNotices(notices) {
     row.innerHTML = `
       <div>
         <div class="notice-admin-title">
-          <span class="notice-tag">${getNoticeTypeLabel(notice.type)}</span>
-          <strong>${notice.title}</strong>
+          <span class="notice-tag">${escapeHtml(getNoticeTypeLabel(notice.type))}</span>
+          <strong>${escapeHtml(notice.title)}</strong>
           ${notice.is_active ? '' : '<span class="notice-status muted">비활성</span>'}
         </div>
-        <div class="muted small">채널: ${channelLabels[notice.channel] || notice.channel} · 범위: ${notice.scope} · 시작: ${notice.start_at ? formatNoticeDate(notice.start_at) : '즉시'}</div>
+        <div class="muted small">채널: ${escapeHtml(channelLabels[notice.channel] || notice.channel)} · 범위: ${escapeHtml(notice.scope)} · 시작: ${notice.start_at ? formatNoticeDate(notice.start_at) : '즉시'}</div>
       </div>
       <div class="notice-admin-actions">
         <button class="btn tiny" data-action="edit" ${disableActions ? 'disabled' : ''}>수정</button>

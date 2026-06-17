@@ -1,6 +1,10 @@
 import { apiRequest } from './api.js';
 import { formatDateTimeSeoul } from './datetime.js';
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 const typeLabels = {
   DB_MAINTENANCE: 'DB 점검',
   SYSTEM_MAINTENANCE: '시스템 점검',
@@ -79,8 +83,8 @@ export async function initNoticeOverlays() {
       text.className = 'notice-banner-text';
       text.innerHTML = `
         <div class="notice-banner-marquee">
-          <strong>${notice.title}</strong>
-          <span class="notice-banner-body">${notice.body}</span>
+          <strong>${escapeHtml(notice.title)}</strong>
+          <span class="notice-banner-body">${escapeHtml(notice.body)}</span>
         </div>
       `;
       content.appendChild(text);
@@ -131,13 +135,13 @@ export async function initNoticeOverlays() {
       <div class="modal notice-popup">
         <div class="modal-header notice-popup-header">
           <div class="notice-popup-title">
-            <span class="notice-tag">${typeLabels[notice.type] || notice.type}</span>
-            <h3>${notice.title}</h3>
+            <span class="notice-tag">${escapeHtml(typeLabels[notice.type] || notice.type)}</span>
+            <h3>${escapeHtml(notice.title)}</h3>
           </div>
           <div class="muted small">${notice.start_at ? formatDate(notice.start_at) : '공지사항'}</div>
         </div>
         <div class="modal-body notice-popup-body">
-          <p>${notice.body}</p>
+          <p>${escapeHtml(notice.body)}</p>
           <label class="inline notice-snooze">
             <input type="checkbox" id="notice-popup-snooze" /> 오늘 하루 보지 않기
           </label>

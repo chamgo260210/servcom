@@ -307,6 +307,22 @@ class HistoryEntry(BaseModel):
     created_at: datetime
 
 
+
+
+class HistoryStatsOut(BaseModel):
+    total_logs: int
+    recent_30_days: int
+    display_limit: int
+    current_window_days: int | None
+    oldest_log: datetime | None
+    newest_log: datetime | None
+    request_linked: int
+    request_unlinked: int
+    actor_linked: int
+    actor_missing: int
+    by_action: dict[str, int] = Field(default_factory=dict)
+
+
 class AuthAccountOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
