@@ -168,6 +168,33 @@ def pending_requests(db: Session = Depends(get_db), current=Depends(require_role
     )
 
 
+def _request_status_action_type(req: models.ShiftRequest) -> str:
+    if req.status == models.RequestStatus.APPROVED:
+        return "REQUEST_APPROVE"
+    if req.status == models.RequestStatus.REJECTED:
+        return "REQUEST_REJECT"
+    if req.status == models.RequestStatus.CANCELLED:
+        return "REQUEST_CANCEL"
+    return "REQUEST_SUBMIT"
+
+
+def _request_feed_entry(req: models.ShiftRequest, *, action_type: str, created_at) -> schemas.RequestFeedEntry:
+    return schemas.RequestFeedEntry(
+        request_id=req.id,
+        action_type=action_type,
+        created_at=created_at,
+        user_id=req.user_id,
+        type=req.type,
+        target_date=req.target_date,
+        target_shift_id=req.target_shift_id,
+        target_start_time=req.target_start_time,
+        target_end_time=req.target_end_time,
+        reason=req.reason,
+        cancelled_after_approval=req.cancelled_after_approval,
+        cancel_reason=req.cancel_reason,
+    )
+
+
 @router.get("/feed", response_model=list[schemas.RequestFeedEntry])
 def request_feed(db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
     logs = (
@@ -180,37 +207,44 @@ def request_feed(db: Session = Depends(get_db), current=Depends(require_role(mod
         .limit(50)
         .all()
     )
-    if not logs:
-        return []
     request_ids = [log.request_id for log in logs if log.request_id]
-    requests = (
-        db.query(models.ShiftRequest)
-        .filter(models.ShiftRequest.id.in_(request_ids))
-        .all()
-    )
-    request_map = {req.id: req for req in requests}
+    request_map = {}
+    if request_ids:
+        requests = (
+            db.query(models.ShiftRequest)
+            .filter(models.ShiftRequest.id.in_(request_ids))
+            .all()
+        )
+        request_map = {req.id: req for req in requests}
+
     entries: list[schemas.RequestFeedEntry] = []
+    included_request_ids = set()
     for log in logs:
         req = request_map.get(log.request_id)
-        if not req:
+        if not req or req.id in included_request_ids:
+            continue
+        entries.append(_request_feed_entry(req, action_type=log.action_type, created_at=log.created_at))
+        included_request_ids.add(req.id)
+
+    recent_requests = (
+        db.query(models.ShiftRequest)
+        .order_by(models.ShiftRequest.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    for req in recent_requests:
+        if req.id in included_request_ids:
             continue
         entries.append(
-            schemas.RequestFeedEntry(
-                request_id=req.id,
-                action_type=log.action_type,
-                created_at=log.created_at,
-                user_id=req.user_id,
-                type=req.type,
-                target_date=req.target_date,
-                target_shift_id=req.target_shift_id,
-                target_start_time=req.target_start_time,
-                target_end_time=req.target_end_time,
-                reason=req.reason,
-                cancelled_after_approval=req.cancelled_after_approval,
-                cancel_reason=req.cancel_reason,
+            _request_feed_entry(
+                req,
+                action_type=_request_status_action_type(req),
+                created_at=req.decided_at or req.created_at,
             )
         )
-    return entries
+        included_request_ids.add(req.id)
+
+    return sorted(entries, key=lambda entry: entry.created_at, reverse=True)[:50]
 
 
 @router.post("/{request_id}/cancel", response_model=schemas.RequestOut)

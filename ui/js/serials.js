@@ -2,6 +2,10 @@
 import { apiRequest } from './api.js';
 import { loadUser } from './auth.js';
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 // --- Global State ---
 let currentRole = null;
 let serials = [];
@@ -167,7 +171,7 @@ function renderShelfOptions() {
   const select = document.getElementById('serial-shelf-id');
   if (!select) return;
   select.innerHTML = '<option value="">배치도에서 선택 (또는 직접 입력)</option>' +
-    shelves.map(s => `<option value="${s.id}">${s.code}</option>`).join('');
+    shelves.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.code)}</option>`).join('');
 }
 
 function bindManageEvents() {
@@ -276,10 +280,10 @@ function renderList() {
   serials.forEach(s => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-         <td>${s.title}</td>
-         <td>${s.issn || '-'}</td>
-         <td>${acquisitionLabels[s.acquisition_type] || s.acquisition_type}</td>
-         <td>${formatShelfLabel(s)}</td>
+         <td>${escapeHtml(s.title)}</td>
+         <td>${escapeHtml(s.issn || '-')}</td>
+         <td>${escapeHtml(acquisitionLabels[s.acquisition_type] || s.acquisition_type)}</td>
+         <td>${escapeHtml(formatShelfLabel(s))}</td>
        `;
     tr.addEventListener('click', () => {
       tbody.querySelectorAll('tr').forEach(r => r.classList.remove('active', 'selected'));
@@ -355,7 +359,7 @@ function renderLayoutLegend() {
   if (!legend) return;
   legend.innerHTML = shelfTypes.map((t, idx) => {
     const color = getShelfTypeColor(idx);
-    return `<div class="legend-item"><span class="legend-swatch" style="background:${color}"></span>${t.name}</div>`;
+    return `<div class="legend-item"><span class="legend-swatch" style="background:${escapeHtml(color)}"></span>${escapeHtml(t.name)}</div>`;
   }).join('');
 }
 
@@ -403,7 +407,7 @@ function renderShelfVisual(serial) {
       // 하이라이트된 셀에 동적 색상 적용
       let style = '';
       if (isHighlighted) {
-        style = `background-color: ${color}; border-color: ${color}; color: white; font-weight: 600;`;
+        style = `background-color: ${escapeHtml(color)}; border-color: ${escapeHtml(color)}; color: white; font-weight: 600;`;
       }
 
       html += `<div class="shelf-cell${isHighlighted ? ' highlighted' : ''}" 
@@ -489,7 +493,7 @@ function showShelfTooltip(shelf, x, y, canvasEl) {
       const typeIndex = shelfTypes.findIndex(t => String(t.id).toLowerCase().trim() === String(shelfType.id).toLowerCase().trim());
       const color = getShelfTypeColor(typeIndex);
 
-      html += `<div class="tooltip-shelf-grid" style="grid-template-columns: repeat(${cols}, 1fr); border-color: ${color}; background-color: ${hexToRgba(color, 0.1)};">`;
+      html += `<div class="tooltip-shelf-grid" style="grid-template-columns: repeat(${cols}, 1fr); border-color: ${escapeHtml(color)}; background-color: ${hexToRgba(color, 0.1)};">`;
       for (let r = 1; r <= rows; r++) {
         for (let c = 1; c <= cols; c++) {
           // 해당 셀에 간행물이 있는지 확인
@@ -503,7 +507,7 @@ function showShelfTooltip(shelf, x, y, canvasEl) {
 
           let cellStyle = `border-color: ${hexToRgba(color, 0.3)};`;
           if (isOccupied) {
-            cellStyle += `background-color: ${color};`; // Occupied cells use solid color
+            cellStyle += `background-color: ${escapeHtml(color)};`; // Occupied cells use solid color
           }
 
           html += `<div class="tooltip-shelf-cell${isOccupied ? ' occupied' : ''}" style="${cellStyle}"></div>`;
@@ -636,7 +640,7 @@ async function renderCanvas() {
   shelves.forEach(shelf => {
     const g = document.createElementNS(ns, 'g');
     const rotation = shelf.rotation || 0;
-    g.setAttribute('transform', `translate(${shelf.x}, ${shelf.y}) rotate(${rotation})`);
+    g.setAttribute('transform', `translate(${escapeHtml(shelf.x)}, ${escapeHtml(shelf.y)}) rotate(${rotation})`);
     g.classList.add('shelf-group');
     if ((selectedElement?.type === 'shelf' && selectedElement.id === shelf.id) || isElementInSelection(shelf, 'shelf')) {
       g.classList.add('selected');
@@ -1285,10 +1289,10 @@ function renderShelfTypeList() {
   list.innerHTML = shelfTypes.map((t, idx) => {
     const color = getShelfTypeColor(idx);
     return `
-      <div class="list-item shelf-type-item" data-id="${t.id}">
-        <span class="shelf-type-color" style="background:${color}"></span>
-        <span class="shelf-type-info">${t.name} (${t.rows}행 × ${t.columns}칸)</span>
-        <button class="btn-icon delete-type" data-id="${t.id}">🗑️</button>
+      <div class="list-item shelf-type-item" data-id="${escapeHtml(t.id)}">
+        <span class="shelf-type-color" style="background:${escapeHtml(color)}"></span>
+        <span class="shelf-type-info">${escapeHtml(t.name)} (${escapeHtml(t.rows)}행 × ${escapeHtml(t.columns)}칸)</span>
+        <button class="btn-icon delete-type" data-id="${escapeHtml(t.id)}">🗑️</button>
       </div>`;
   }).join('');
 
@@ -1357,7 +1361,7 @@ function bindSidebarEvents() {
 
 function renderLayoutSelect() {
   const select = document.getElementById('layout-select');
-  if (select) select.innerHTML = layouts.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+  if (select) select.innerHTML = layouts.map(l => `<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)}</option>`).join('');
 }
 
 function renderPropertiesPanel() {
@@ -1401,10 +1405,10 @@ function renderPropertiesPanel() {
   if (selectedElement.type === 'shelf') {
     const shelf = selectedElement;
     panel.innerHTML = `
-          <div class="form-row"><label>명칭</label><input id="prop-code" value="${shelf.code}"></div>
-          <div class="form-row"><label>X</label><input id="prop-x" type="number" value="${shelf.x}"></div>
-          <div class="form-row"><label>Y</label><input id="prop-y" type="number" value="${shelf.y}"></div>
-          <div class="form-row"><label>회전°</label><input id="prop-rot" type="number" value="${shelf.rotation || 0}"></div>
+          <div class="form-row"><label>명칭</label><input id="prop-code" value="${escapeHtml(shelf.code)}"></div>
+          <div class="form-row"><label>X</label><input id="prop-x" type="number" value="${escapeHtml(shelf.x)}"></div>
+          <div class="form-row"><label>Y</label><input id="prop-y" type="number" value="${escapeHtml(shelf.y)}"></div>
+          <div class="form-row"><label>회전°</label><input id="prop-rot" type="number" value="${escapeHtml(shelf.rotation || 0)}"></div>
           <div class="stack tight" style="margin-top:10px">
             <button class="btn primary small" id="prop-update">수정</button>
             <button class="btn danger small" id="prop-delete">삭제</button>
@@ -1539,7 +1543,7 @@ function renderShelfPalette() {
     el.style.borderColor = borderColor;
     el.style.backgroundColor = bgColor;
     el.style.color = '#ffffff'; // White text
-    el.innerHTML = `<div class="palette-label">${t.name}</div>`;
+    el.innerHTML = `<div class="palette-label">${escapeHtml(t.name)}</div>`;
 
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
