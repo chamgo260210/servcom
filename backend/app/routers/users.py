@@ -87,14 +87,6 @@ def get_user(user_id: str, db: Session = Depends(get_db), current=Depends(requir
     return user
 
 
-@router.get("/{user_id}", response_model=schemas.UserOut)
-def get_user(user_id: str, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MEMBER))):
-    user = _visible_users_query(db, current).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-
 @router.patch("/{user_id}", response_model=schemas.UserOut)
 def update_user(user_id: str, payload: schemas.UserUpdate, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
     user = _visible_users_query(db, current).filter(models.User.id == user_id).first()
@@ -158,37 +150,6 @@ def update_credentials(user_id: str, payload: schemas.CredentialAdminUpdate, db:
         details={"login_id_changed": bool(payload.new_login_id), "password_changed": bool(payload.new_password)},
     )
     db.commit()
-    return user
-
-
-@router.patch("/{user_id}/credentials", response_model=schemas.UserOut)
-def update_credentials(user_id: str, payload: schemas.CredentialAdminUpdate, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
-    if not payload.new_login_id and not payload.new_password:
-        raise HTTPException(status_code=400, detail="No changes provided")
-
-    user = _visible_users_query(db, current).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    _assert_can_manage(current, user)
-
-    account = user.auth_account
-    if not account:
-        raise HTTPException(status_code=400, detail="User has no login account")
-
-    if payload.new_login_id:
-        conflict = db.query(models.AuthAccount).filter(
-            models.AuthAccount.login_id == payload.new_login_id,
-            models.AuthAccount.user_id != user.id,
-        ).first()
-        if conflict:
-            raise HTTPException(status_code=409, detail="Login ID already exists")
-        account.login_id = payload.new_login_id
-    if payload.new_password:
-        account.password_hash = get_password_hash(payload.new_password)
-
-    db.add(account)
-    db.commit()
-    db.refresh(user)
     return user
 
 
