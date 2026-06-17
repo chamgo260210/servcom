@@ -106,6 +106,10 @@ if (typeof window !== 'undefined') {
   window.requestTimeLabel = requestTimeLabel;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 function typeLabel(type) {
   return type === 'ABSENCE' ? '결근' : '추가 근무';
 }
@@ -425,15 +429,15 @@ async function loadMyRequests() {
     header.className = 'request-header';
     const timeText = requestTimeLabel(r);
     const shiftText = shiftLabel(r.target_shift_id);
-    header.innerHTML = `<strong>${typeLabel(r.type)}</strong>`;
+    header.innerHTML = `<strong>${escapeHtml(typeLabel(r.type))}</strong>`;
     header.appendChild(badge);
 
     const metaList = document.createElement('div');
     metaList.className = 'request-meta-list';
     metaList.innerHTML = `
-      <div class="request-meta"><span class="meta-label">일자</span><span class="meta-value">${r.target_date || '-'}</span></div>
-      <div class="request-meta"><span class="meta-label">시간</span><span class="meta-value">${timeText || '-'}</span></div>
-      <div class="request-meta"><span class="meta-label">근무</span><span class="meta-value">${shiftText || '-'}</span></div>
+      <div class="request-meta"><span class="meta-label">일자</span><span class="meta-value">${escapeHtml(r.target_date || '-')}</span></div>
+      <div class="request-meta"><span class="meta-label">시간</span><span class="meta-value">${escapeHtml(timeText || '-')}</span></div>
+      <div class="request-meta"><span class="meta-label">근무</span><span class="meta-value">${escapeHtml(shiftText || '-')}</span></div>
     `;
 
     const reason = document.createElement('div');
@@ -504,20 +508,20 @@ async function loadPendingRequests() {
       card.className = 'request-card';
       card.innerHTML = `
         <div class="request-card-title">
-          <strong>${requester ? requester.name : r.user_id}</strong>
-          <span class="badge ${r.status.toLowerCase()}">${statusText}</span>
+          <strong>${escapeHtml(requester ? requester.name : r.user_id)}</strong>
+          <span class="badge ${escapeHtml(r.status.toLowerCase())}">${escapeHtml(statusText)}</span>
         </div>
-        <div class="request-card-meta">유형: ${typeLabel(r.type)}</div>
-        <div class="request-card-meta">날짜: ${r.target_date}</div>
-        <div class="request-card-meta">근무: ${shiftText}</div>
-        <div class="request-card-meta">사유: ${r.reason || '-'}</div>
+        <div class="request-card-meta">유형: ${escapeHtml(typeLabel(r.type))}</div>
+        <div class="request-card-meta">날짜: ${escapeHtml(r.target_date)}</div>
+        <div class="request-card-meta">근무: ${escapeHtml(shiftText)}</div>
+        <div class="request-card-meta">사유: ${escapeHtml(r.reason || '-')}</div>
       `;
       card.appendChild(actions);
       cardList.appendChild(card);
       return;
     }
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${requester ? requester.name : r.user_id}</td><td>${typeLabel(r.type)}</td><td>${r.target_date}</td><td>${shiftText}</td><td>${r.reason || ''}</td><td>${statusText}</td>`;
+    tr.innerHTML = `<td>${escapeHtml(requester ? requester.name : r.user_id)}</td><td>${escapeHtml(typeLabel(r.type))}</td><td>${escapeHtml(r.target_date)}</td><td>${escapeHtml(shiftText)}</td><td>${escapeHtml(r.reason || '')}</td><td>${escapeHtml(statusText)}</td>`;
     const tdAction = document.createElement('td');
     tdAction.appendChild(actions);
     tr.appendChild(tdAction);
@@ -565,7 +569,7 @@ async function renderRequestFeed() {
       shiftText,
       target: entry.target_date || '-',
       reason: entry.reason || '-',
-      rowHtml: `<td>${requesterName}</td><td>${typeLabel(entry.type)}</td><td>${entry.target_date}</td><td>${shiftText}</td><td>${statusText}</td><td>${entry.reason || '-'}</td>`
+      rowHtml: `<td>${escapeHtml(requesterName)}</td><td>${escapeHtml(typeLabel(entry.type))}</td><td>${escapeHtml(entry.target_date)}</td><td>${escapeHtml(shiftText)}</td><td>${escapeHtml(statusText)}</td><td>${escapeHtml(entry.reason || '-')}</td>`
     };
   });
   events
@@ -580,9 +584,9 @@ async function renderRequestFeed() {
             <strong>${ev.status}</strong>
             <span class="muted small">${formatDateTimeSeoul(ev.time)}</span>
           </div>
-          <div class="request-card-meta">${ev.requesterName} · ${ev.shiftText}</div>
-          <div class="request-card-meta">날짜: ${ev.target || '-'}</div>
-          <div class="request-card-meta">사유: ${ev.reason || '-'}</div>
+          <div class="request-card-meta">${escapeHtml(ev.requesterName)} · ${escapeHtml(ev.shiftText)}</div>
+          <div class="request-card-meta">날짜: ${escapeHtml(ev.target || '-')}</div>
+          <div class="request-card-meta">사유: ${escapeHtml(ev.reason || '-')}</div>
         `;
         list.appendChild(card);
         return;

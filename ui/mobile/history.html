@@ -108,7 +108,56 @@
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
     <main class="mobile-content">
       <section class="card">
-        <div class="card-title">최근 이력 (최근 30일 · 최대 50건)</div>
+        <div class="card-title">변동 이력 조회</div>
+        <div class="muted small">변동 이력은 시스템 운영 중 기록되는 활동 로그입니다. 선택한 기간과 건수만 표시되며, WORK/FULL 복원 후에는 복원 전후 활동 이력이 완전히 이어지지 않을 수 있습니다.</div>
+        <div class="history-summary" id="history-summary">
+          <div class="history-summary-group">
+            <div class="muted small">저장 현황</div>
+            <div id="history-stat-total">전체 로그: -</div>
+            <div id="history-stat-last-7">최근 7일: -</div>
+            <div id="history-stat-recent">최근 30일: -</div>
+            <div id="history-stat-last-90">최근 90일: -</div>
+            <div id="history-stat-action-types">이력 유형 수: -</div>
+            <div id="history-stat-oldest">최초 로그: -</div>
+            <div id="history-stat-oldest-age">최초 로그 경과: -</div>
+            <div id="history-stat-newest">최신 로그: -</div>
+          </div>
+          <div class="history-summary-group">
+            <div class="muted small">조회 현황</div>
+            <div id="history-stat-current">현재 조회 결과: -</div>
+            <div id="history-stat-query-limit">현재 조회 제한: -</div>
+          </div>
+          <div class="history-summary-group">
+            <div class="muted small">연결 진단</div>
+            <div id="history-stat-request-unlinked">신청 연결 없는 로그: -</div>
+            <div id="history-stat-actor-missing">실행자 정보 없는 로그: -</div>
+            <div id="history-stat-orphan-request">끊어진 신청 연결 로그: -</div>
+            <div id="history-stat-orphan-actor">없는 실행자 로그: -</div>
+            <div id="history-stat-orphan-target">없는 대상자 로그: -</div>
+          </div>
+        </div>
+        <div id="history-stats-status" class="muted small">통계를 불러오는 중...</div>
+        <div class="toolbar compact">
+          <label>기간
+            <select id="history-days">
+              <option value="30">30일</option>
+              <option value="90">90일</option>
+              <option value="all">전체</option>
+            </select>
+          </label>
+          <label>표시 건수
+            <select id="history-limit">
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+          <label>이력 유형
+            <select id="history-action-type"><option value="">전체 이력 유형</option></select>
+          </label>
+          <button class="btn tiny" id="history-refresh" type="button">조회</button>
+        </div>
         <div id="history-status" class="muted">불러오는 중...</div>
         <div id="history-list" class="history-list"></div>
       </section>
@@ -116,11 +165,11 @@
   </div>
   <script type="module">
     import { initAppLayout } from '../js/layout.js';
-    import { loadHistory } from '../js/history.js';
+    import { initHistory } from '../js/history.js';
 
     const user = await initAppLayout('history');
     if (user?.role === 'MASTER') {
-      await loadHistory(user);
+      await initHistory(user);
     }
   </script>
 </body>
