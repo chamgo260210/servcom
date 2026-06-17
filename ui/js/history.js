@@ -55,13 +55,14 @@ function renderStats(stats) {
   setStatText('history-stat-last-7', '최근 7일', `${formatCount(stats.logs_last_7_days)}건`);
   setStatText('history-stat-recent', '최근 30일', `${formatCount(stats.recent_30_days)}건`);
   setStatText('history-stat-last-90', '최근 90일', `${formatCount(stats.logs_last_90_days)}건`);
-  setStatText('history-stat-action-types', 'action_type 종류', `${formatCount(stats.action_type_count)}개`);
+  setStatText('history-stat-action-types', '이력 유형 수', `${formatCount(stats.action_type_count)}개`);
   setStatText('history-stat-current', '현재 조회 결과', '0건');
-  setStatText('history-stat-request-unlinked', 'request 연결 해제 로그', `${formatCount(stats.request_unlinked)}건`);
-  setStatText('history-stat-actor-missing', 'actor 없는 로그', `${formatCount(stats.actor_missing)}건`);
-  setStatText('history-stat-orphan-request', 'orphan request 로그', `${formatCount(stats.orphan_request_logs)}건`);
-  setStatText('history-stat-orphan-actor', 'orphan actor 로그', `${formatCount(stats.orphan_actor_logs)}건`);
-  setStatText('history-stat-orphan-target', 'orphan target 로그', `${formatCount(stats.orphan_target_logs)}건`);
+  setStatText('history-stat-query-limit', '현재 조회 제한', `${formatCount(currentFilters().limit)}건`);
+  setStatText('history-stat-request-unlinked', '신청 연결 없는 로그', `${formatCount(stats.request_unlinked)}건`);
+  setStatText('history-stat-actor-missing', '실행자 정보 없는 로그', `${formatCount(stats.actor_missing)}건`);
+  setStatText('history-stat-orphan-request', '끊어진 신청 연결 로그', `${formatCount(stats.orphan_request_logs)}건`);
+  setStatText('history-stat-orphan-actor', '없는 실행자 로그', `${formatCount(stats.orphan_actor_logs)}건`);
+  setStatText('history-stat-orphan-target', '없는 대상자 로그', `${formatCount(stats.orphan_target_logs)}건`);
   setStatText('history-stat-oldest', '최초 로그', formatOptionalDate(stats.oldest_log));
   setStatText('history-stat-oldest-age', '최초 로그 경과', stats.oldest_log_age_days === null || stats.oldest_log_age_days === undefined ? '-' : `${formatCount(stats.oldest_log_age_days)}일`);
   setStatText('history-stat-newest', '최신 로그', formatAgeMinutes(stats.newest_log_age_minutes));
@@ -72,7 +73,7 @@ function renderStats(stats) {
   actionSelect.innerHTML = '';
   const allOption = document.createElement('option');
   allOption.value = '';
-  allOption.textContent = '전체 action_type';
+  allOption.textContent = '전체 이력 유형';
   actionSelect.appendChild(allOption);
   Object.entries(stats.by_action || {})
     .sort(([left], [right]) => left.localeCompare(right))
@@ -110,6 +111,7 @@ async function loadHistory(currentUser) {
     const response = await apiRequest(buildHistoryPath());
     const logs = Array.isArray(response) ? response : [];
     setStatText('history-stat-current', '현재 조회 결과', `${formatCount(logs.length)}건`);
+    setStatText('history-stat-query-limit', '현재 조회 제한', `${formatCount(limit)}건`);
     if (!logs.length) {
       if (status) status.textContent = '선택한 조건에 해당하는 이력이 없습니다';
       return;

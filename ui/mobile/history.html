@@ -109,22 +109,32 @@
     <main class="mobile-content">
       <section class="card">
         <div class="card-title">변동 이력 조회</div>
-        <div class="muted small">변동 이력은 audit_logs에 저장된 운영 로그입니다. 현재 화면은 선택한 기간과 건수만 표시하며, WORK/FULL 백업은 audit_logs 전체 복원을 수행하지 않아 복원 전후 활동 로그가 완전히 이어지지 않을 수 있습니다.</div>
+        <div class="muted small">변동 이력은 시스템 운영 중 기록되는 활동 로그입니다. 선택한 기간과 건수만 표시되며, WORK/FULL 복원 후에는 복원 전후 활동 이력이 완전히 이어지지 않을 수 있습니다.</div>
         <div class="history-summary" id="history-summary">
-          <div id="history-stat-total">전체 로그: -</div>
-          <div id="history-stat-last-7">최근 7일: -</div>
-          <div id="history-stat-recent">최근 30일: -</div>
-          <div id="history-stat-last-90">최근 90일: -</div>
-          <div id="history-stat-action-types">action_type 종류: -</div>
-          <div id="history-stat-current">현재 조회 결과: -</div>
-          <div id="history-stat-request-unlinked">request 연결 해제 로그: -</div>
-          <div id="history-stat-actor-missing">actor 없는 로그: -</div>
-          <div id="history-stat-orphan-request">orphan request 로그: -</div>
-          <div id="history-stat-orphan-actor">orphan actor 로그: -</div>
-          <div id="history-stat-orphan-target">orphan target 로그: -</div>
-          <div id="history-stat-oldest">최초 로그: -</div>
-          <div id="history-stat-oldest-age">최초 로그 경과: -</div>
-          <div id="history-stat-newest">최신 로그: -</div>
+          <div class="history-summary-group">
+            <div class="muted small">저장 현황</div>
+            <div id="history-stat-total">전체 로그: -</div>
+            <div id="history-stat-last-7">최근 7일: -</div>
+            <div id="history-stat-recent">최근 30일: -</div>
+            <div id="history-stat-last-90">최근 90일: -</div>
+            <div id="history-stat-action-types">이력 유형 수: -</div>
+            <div id="history-stat-oldest">최초 로그: -</div>
+            <div id="history-stat-oldest-age">최초 로그 경과: -</div>
+            <div id="history-stat-newest">최신 로그: -</div>
+          </div>
+          <div class="history-summary-group">
+            <div class="muted small">조회 현황</div>
+            <div id="history-stat-current">현재 조회 결과: -</div>
+            <div id="history-stat-query-limit">현재 조회 제한: -</div>
+          </div>
+          <div class="history-summary-group">
+            <div class="muted small">연결 진단</div>
+            <div id="history-stat-request-unlinked">신청 연결 없는 로그: -</div>
+            <div id="history-stat-actor-missing">실행자 정보 없는 로그: -</div>
+            <div id="history-stat-orphan-request">끊어진 신청 연결 로그: -</div>
+            <div id="history-stat-orphan-actor">없는 실행자 로그: -</div>
+            <div id="history-stat-orphan-target">없는 대상자 로그: -</div>
+          </div>
         </div>
         <div id="history-stats-status" class="muted small">통계를 불러오는 중...</div>
         <div class="toolbar compact">
@@ -143,8 +153,8 @@
               <option value="500">500</option>
             </select>
           </label>
-          <label>action_type
-            <select id="history-action-type"><option value="">전체 action_type</option></select>
+          <label>이력 유형
+            <select id="history-action-type"><option value="">전체 이력 유형</option></select>
           </label>
           <button class="btn tiny" id="history-refresh" type="button">조회</button>
         </div>
