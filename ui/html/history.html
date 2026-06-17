@@ -123,6 +123,19 @@
           </label>
           <button class="btn tiny" id="history-refresh" type="button">조회</button>
         </div>
+        <div class="muted small">내보내기는 현재 선택한 기간과 이력 유형을 기준으로 변동 이력을 파일로 저장합니다. 이 기능은 audit_logs를 백업/복원에 포함하는 기능이 아니며, 운영자가 이력을 별도로 확인·보관하기 위한 기능입니다.</div>
+        <div class="toolbar compact">
+          <label>내보내기 건수
+            <select id="history-export-limit">
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+              <option value="5000">5000</option>
+            </select>
+          </label>
+          <button class="btn tiny" id="history-export-csv" type="button">CSV 내보내기</button>
+          <button class="btn tiny" id="history-export-json" type="button">JSON 내보내기</button>
+        </div>
+        <div id="history-export-status" class="muted small"></div>
         <div id="history-status" class="muted">불러오는 중...</div>
         <table class="table" id="history-table">
           <thead>

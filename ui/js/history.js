@@ -4,6 +4,7 @@ import { formatDateTimeSeoul } from './datetime.js';
 
 const DEFAULT_DAYS = '30';
 const DEFAULT_LIMIT = '50';
+const DEFAULT_EXPORT_LIMIT = '500';
 
 let latestHistoryStats = null;
 
@@ -44,9 +45,44 @@ function buildHistoryPath() {
   return `/history?${params.toString()}`;
 }
 
+function buildExportPath(format) {
+  const { days, actionType } = currentFilters();
+  const exportLimit = document.getElementById('history-export-limit')?.value || DEFAULT_EXPORT_LIMIT;
+  const params = new URLSearchParams({ days, limit: exportLimit, format });
+  if (actionType) params.set('action_type', actionType);
+  return `/history/export?${params.toString()}`;
+}
+
 function setStatText(id, label, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = `${label}: ${value}`;
+}
+
+function filenameFromDisposition(disposition, fallback) {
+  const match = /filename="?([^"]+)"?/i.exec(disposition || '');
+  return match?.[1] || fallback;
+}
+
+async function exportHistory(format) {
+  const status = document.getElementById('history-export-status');
+  if (status) status.textContent = `${format.toUpperCase()} 내보내기를 준비하는 중...`;
+  try {
+    const response = await apiRequest(buildExportPath(format), { responseType: 'blob' });
+    const blob = await response.blob();
+    const fallbackName = `audit_history.${format === 'json' ? 'json' : 'csv'}`;
+    const filename = filenameFromDisposition(response.headers.get('Content-Disposition'), fallbackName);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    if (status) status.textContent = `${format.toUpperCase()} 내보내기를 완료했습니다.`;
+  } catch (e) {
+    if (status) status.textContent = `내보내기에 실패했습니다: ${e.message || e}`;
+  }
 }
 
 function renderStats(stats) {
@@ -180,6 +216,8 @@ function bindHistoryControls(currentUser) {
   });
   document.getElementById('history-refresh')?.addEventListener('click', () => loadHistory(currentUser));
   document.getElementById('history-diagnostics-run')?.addEventListener('click', () => loadHistoryDiagnostics());
+  document.getElementById('history-export-csv')?.addEventListener('click', () => exportHistory('csv'));
+  document.getElementById('history-export-json')?.addEventListener('click', () => exportHistory('json'));
 }
 
 async function initHistory(currentUser) {

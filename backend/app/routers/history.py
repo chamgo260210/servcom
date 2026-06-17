@@ -1,6 +1,10 @@
 # File: /backend/app/routers/history.py
+import csv
+import io
+import json
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 
@@ -15,6 +19,9 @@ DEFAULT_HISTORY_DAYS = 30
 DEFAULT_HISTORY_LIMIT = 50
 ALLOWED_HISTORY_DAYS = {"30", "90", "all"}
 ALLOWED_HISTORY_LIMITS = {50, 100, 200, 500}
+DEFAULT_EXPORT_LIMIT = 500
+ALLOWED_EXPORT_LIMITS = {100, 500, 1000, 5000}
+ALLOWED_EXPORT_FORMATS = {"csv", "json"}
 
 ACTION_LABEL = {
     "REQUEST_SUBMIT": "신청 접수",
@@ -39,6 +46,19 @@ def _parse_limit(value: str | int | None) -> int:
     except (TypeError, ValueError):
         return DEFAULT_HISTORY_LIMIT
     return parsed if parsed in ALLOWED_HISTORY_LIMITS else DEFAULT_HISTORY_LIMIT
+
+
+def _parse_export_limit(value: str | int | None) -> int:
+    try:
+        parsed = int(value) if value is not None else DEFAULT_EXPORT_LIMIT
+    except (TypeError, ValueError):
+        return DEFAULT_EXPORT_LIMIT
+    return parsed if parsed in ALLOWED_EXPORT_LIMITS else DEFAULT_EXPORT_LIMIT
+
+
+def _parse_export_format(value: str | None) -> str:
+    normalized = str(value or "csv").strip().lower()
+    return normalized if normalized in ALLOWED_EXPORT_FORMATS else "csv"
 
 
 def _parse_days(value: str | None) -> str:
@@ -77,6 +97,40 @@ def _entry_from_log(log: models.AuditLog, users: dict) -> schemas.HistoryEntry:
         details=log.details,
         created_at=log.created_at,
     )
+
+
+def _history_query(db: Session, days: str, action_type: str | None):
+    cutoff = _history_cutoff(days)
+    query = db.query(models.AuditLog)
+    if cutoff is not None:
+        query = query.filter(models.AuditLog.created_at >= cutoff)
+    if action_type and action_type.strip():
+        query = query.filter(models.AuditLog.action_type == action_type.strip())
+    return query
+
+
+def _csv_safe(value) -> str:
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    if text.startswith(("=", "+", "-", "@")):
+        return f"'{text}"
+    return text
+
+
+def _history_entry_to_export_row(entry: schemas.HistoryEntry) -> dict[str, str]:
+    details = json.dumps(entry.details, ensure_ascii=False, default=str) if entry.details else ""
+    return {
+        "created_at": _csv_safe(entry.created_at.isoformat()),
+        "action_type": _csv_safe(entry.action_type),
+        "action_label": _csv_safe(entry.action_label),
+        "actor_user_id": _csv_safe(entry.actor_user_id),
+        "actor_name": _csv_safe(entry.actor_name),
+        "target_user_id": _csv_safe(entry.target_user_id),
+        "target_name": _csv_safe(entry.target_name),
+        "request_id": _csv_safe(entry.request_id),
+        "details": _csv_safe(details),
+    }
 
 
 @router.get("/stats", response_model=schemas.HistoryStatsOut)
@@ -177,6 +231,53 @@ def history_diagnostics(db: Session = Depends(get_db), current=Depends(require_r
     )
 
 
+@router.get("/export")
+def history_export(
+    days: str | None = None,
+    limit: str | None = None,
+    action_type: str | None = None,
+    format: str | None = None,
+    db: Session = Depends(get_db),
+    current=Depends(require_role(models.UserRole.MASTER)),
+):
+    selected_days = _parse_days(days)
+    selected_limit = _parse_export_limit(limit)
+    selected_format = _parse_export_format(format)
+    logs = (
+        _history_query(db, selected_days, action_type)
+        .order_by(models.AuditLog.created_at.desc())
+        .limit(selected_limit)
+        .all()
+    )
+    users = {u.id: u for u in db.query(models.User).all()}
+    entries = [_entry_from_log(log, users) for log in logs]
+    if selected_format == "json":
+        return JSONResponse(content=[entry.model_dump(mode="json") for entry in entries])
+
+    output = io.StringIO()
+    fieldnames = [
+        "created_at",
+        "action_type",
+        "action_label",
+        "actor_user_id",
+        "actor_name",
+        "target_user_id",
+        "target_name",
+        "request_id",
+        "details",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    for entry in entries:
+        writer.writerow(_history_entry_to_export_row(entry))
+    filename = f"audit_history_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
+    return Response(
+        content=f"\ufeff{output.getvalue()}",
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("", response_model=list[schemas.HistoryEntry])
 def history_logs(
     days: str | None = None,
@@ -187,12 +288,7 @@ def history_logs(
 ):
     selected_days = _parse_days(days)
     selected_limit = _parse_limit(limit)
-    cutoff = _history_cutoff(selected_days)
-    query = db.query(models.AuditLog)
-    if cutoff is not None:
-        query = query.filter(models.AuditLog.created_at >= cutoff)
-    if action_type and action_type.strip():
-        query = query.filter(models.AuditLog.action_type == action_type.strip())
+    query = _history_query(db, selected_days, action_type)
     if current.role == models.UserRole.MEMBER:
         query = query.filter((models.AuditLog.actor_user_id == current.id) | (models.AuditLog.target_user_id == current.id))
     logs = query.order_by(models.AuditLog.created_at.desc()).limit(selected_limit).all()
