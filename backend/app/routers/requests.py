@@ -181,7 +181,34 @@ def request_feed(db: Session = Depends(get_db), current=Depends(require_role(mod
         .all()
     )
     if not logs:
-        return []
+        restored_requests = (
+            db.query(models.ShiftRequest)
+            .order_by(models.ShiftRequest.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        return [
+            schemas.RequestFeedEntry(
+                request_id=req.id,
+                action_type=(
+                    "REQUEST_APPROVE" if req.status == models.RequestStatus.APPROVED
+                    else "REQUEST_REJECT" if req.status == models.RequestStatus.REJECTED
+                    else "REQUEST_CANCEL" if req.status == models.RequestStatus.CANCELLED
+                    else "REQUEST_SUBMIT"
+                ),
+                created_at=req.decided_at or req.created_at,
+                user_id=req.user_id,
+                type=req.type,
+                target_date=req.target_date,
+                target_shift_id=req.target_shift_id,
+                target_start_time=req.target_start_time,
+                target_end_time=req.target_end_time,
+                reason=req.reason,
+                cancelled_after_approval=req.cancelled_after_approval,
+                cancel_reason=req.cancel_reason,
+            )
+            for req in restored_requests
+        ]
     request_ids = [log.request_id for log in logs if log.request_id]
     requests = (
         db.query(models.ShiftRequest)
