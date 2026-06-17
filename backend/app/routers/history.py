@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from .. import models, schemas
 from ..deps import get_db
@@ -52,6 +52,18 @@ def _history_cutoff(days: str) -> datetime | None:
     return datetime.now(timezone.utc) - timedelta(days=int(days))
 
 
+def _age_days(value: datetime | None, now: datetime) -> int | None:
+    if value is None:
+        return None
+    return max((now - value).days, 0)
+
+
+def _age_minutes(value: datetime | None, now: datetime) -> int | None:
+    if value is None:
+        return None
+    return max(int((now - value).total_seconds() // 60), 0)
+
+
 def _entry_from_log(log: models.AuditLog, users: dict) -> schemas.HistoryEntry:
     return schemas.HistoryEntry(
         id=log.id,
@@ -69,11 +81,26 @@ def _entry_from_log(log: models.AuditLog, users: dict) -> schemas.HistoryEntry:
 
 @router.get("/stats", response_model=schemas.HistoryStatsOut)
 def history_stats(db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MASTER))):
-    recent_cutoff = datetime.now(timezone.utc) - timedelta(days=DEFAULT_HISTORY_DAYS)
+    now = datetime.now(timezone.utc)
+    recent_7_cutoff = now - timedelta(days=7)
+    recent_cutoff = now - timedelta(days=DEFAULT_HISTORY_DAYS)
+    recent_90_cutoff = now - timedelta(days=90)
     total_logs = db.query(func.count(models.AuditLog.id)).scalar() or 0
+    logs_last_7_days = (
+        db.query(func.count(models.AuditLog.id))
+        .filter(models.AuditLog.created_at >= recent_7_cutoff)
+        .scalar()
+        or 0
+    )
     recent_30_days = (
         db.query(func.count(models.AuditLog.id))
         .filter(models.AuditLog.created_at >= recent_cutoff)
+        .scalar()
+        or 0
+    )
+    logs_last_90_days = (
+        db.query(func.count(models.AuditLog.id))
+        .filter(models.AuditLog.created_at >= recent_90_cutoff)
         .scalar()
         or 0
     )
@@ -89,17 +116,48 @@ def history_stats(db: Session = Depends(get_db), current=Depends(require_role(mo
         .order_by(models.AuditLog.action_type.asc())
         .all()
     )
+    actor_user = aliased(models.User)
+    target_user = aliased(models.User)
+    orphan_request_logs = (
+        db.query(func.count(models.AuditLog.id))
+        .outerjoin(models.ShiftRequest, models.AuditLog.request_id == models.ShiftRequest.id)
+        .filter(models.AuditLog.request_id.isnot(None), models.ShiftRequest.id.is_(None))
+        .scalar()
+        or 0
+    )
+    orphan_actor_logs = (
+        db.query(func.count(models.AuditLog.id))
+        .outerjoin(actor_user, models.AuditLog.actor_user_id == actor_user.id)
+        .filter(models.AuditLog.actor_user_id.isnot(None), actor_user.id.is_(None))
+        .scalar()
+        or 0
+    )
+    orphan_target_logs = (
+        db.query(func.count(models.AuditLog.id))
+        .outerjoin(target_user, models.AuditLog.target_user_id == target_user.id)
+        .filter(models.AuditLog.target_user_id.isnot(None), target_user.id.is_(None))
+        .scalar()
+        or 0
+    )
     return schemas.HistoryStatsOut(
         total_logs=total_logs,
+        logs_last_7_days=logs_last_7_days,
         recent_30_days=recent_30_days,
+        logs_last_90_days=logs_last_90_days,
         display_limit=DEFAULT_HISTORY_LIMIT,
         current_window_days=DEFAULT_HISTORY_DAYS,
         oldest_log=oldest_log,
         newest_log=newest_log,
+        oldest_log_age_days=_age_days(oldest_log, now),
+        newest_log_age_minutes=_age_minutes(newest_log, now),
         request_linked=request_linked,
         request_unlinked=total_logs - request_linked,
         actor_linked=actor_linked,
         actor_missing=total_logs - actor_linked,
+        action_type_count=len(action_counts),
+        orphan_request_logs=orphan_request_logs,
+        orphan_actor_logs=orphan_actor_logs,
+        orphan_target_logs=orphan_target_logs,
         by_action={action_type: count for action_type, count in action_counts},
     )
 

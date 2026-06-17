@@ -5,6 +5,8 @@ import { formatDateTimeSeoul } from './datetime.js';
 const DEFAULT_DAYS = '30';
 const DEFAULT_LIMIT = '50';
 
+let latestHistoryStats = null;
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
@@ -15,6 +17,17 @@ function formatCount(value) {
 
 function formatOptionalDate(value) {
   return value ? formatDateTimeSeoul(value) : '-';
+}
+
+function formatAgeMinutes(value) {
+  if (value === null || value === undefined) return '-';
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes)) return '-';
+  if (minutes < 60) return `${minutes.toLocaleString()}분 전`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours.toLocaleString()}시간 전`;
+  const days = Math.floor(hours / 24);
+  return `${days.toLocaleString()}일 전`;
 }
 
 function currentFilters() {
@@ -37,13 +50,21 @@ function setStatText(id, label, value) {
 }
 
 function renderStats(stats) {
-  setStatText('history-stat-total', '전체 저장 로그', `${formatCount(stats.total_logs)}건`);
-  setStatText('history-stat-recent', '최근 30일 로그', `${formatCount(stats.recent_30_days)}건`);
+  latestHistoryStats = stats;
+  setStatText('history-stat-total', '전체 로그', `${formatCount(stats.total_logs)}건`);
+  setStatText('history-stat-last-7', '최근 7일', `${formatCount(stats.logs_last_7_days)}건`);
+  setStatText('history-stat-recent', '최근 30일', `${formatCount(stats.recent_30_days)}건`);
+  setStatText('history-stat-last-90', '최근 90일', `${formatCount(stats.logs_last_90_days)}건`);
+  setStatText('history-stat-action-types', 'action_type 종류', `${formatCount(stats.action_type_count)}개`);
   setStatText('history-stat-current', '현재 조회 결과', '0건');
   setStatText('history-stat-request-unlinked', 'request 연결 해제 로그', `${formatCount(stats.request_unlinked)}건`);
   setStatText('history-stat-actor-missing', 'actor 없는 로그', `${formatCount(stats.actor_missing)}건`);
-  setStatText('history-stat-oldest', '가장 오래된 로그', formatOptionalDate(stats.oldest_log));
-  setStatText('history-stat-newest', '가장 최신 로그', formatOptionalDate(stats.newest_log));
+  setStatText('history-stat-orphan-request', 'orphan request 로그', `${formatCount(stats.orphan_request_logs)}건`);
+  setStatText('history-stat-orphan-actor', 'orphan actor 로그', `${formatCount(stats.orphan_actor_logs)}건`);
+  setStatText('history-stat-orphan-target', 'orphan target 로그', `${formatCount(stats.orphan_target_logs)}건`);
+  setStatText('history-stat-oldest', '최초 로그', formatOptionalDate(stats.oldest_log));
+  setStatText('history-stat-oldest-age', '최초 로그 경과', stats.oldest_log_age_days === null || stats.oldest_log_age_days === undefined ? '-' : `${formatCount(stats.oldest_log_age_days)}일`);
+  setStatText('history-stat-newest', '최신 로그', formatAgeMinutes(stats.newest_log_age_minutes));
 
   const actionSelect = document.getElementById('history-action-type');
   if (!actionSelect) return;
@@ -86,9 +107,10 @@ async function loadHistory(currentUser) {
   if (tbody) tbody.innerHTML = '';
   if (list) list.innerHTML = '';
   try {
-    const logs = await apiRequest(buildHistoryPath());
+    const response = await apiRequest(buildHistoryPath());
+    const logs = Array.isArray(response) ? response : [];
     setStatText('history-stat-current', '현재 조회 결과', `${formatCount(logs.length)}건`);
-    if (!logs || !logs.length) {
+    if (!logs.length) {
       if (status) status.textContent = '선택한 조건에 해당하는 이력이 없습니다';
       return;
     }
@@ -121,7 +143,10 @@ async function loadHistory(currentUser) {
     });
     const dayLabel = days === 'all' ? '전체 기간' : `최근 ${days}일`;
     const actionLabel = actionType ? ` · ${actionType}` : '';
-    if (status) status.textContent = `${dayLabel}${actionLabel} · 최대 ${limit}건 중 ${logs.length}건 표시 중`;
+    if (status) {
+      const totalText = latestHistoryStats ? ` ※ 실제 저장 로그는 ${formatCount(latestHistoryStats.total_logs)}건` : '';
+      status.textContent = `현재 조건 결과: ${formatCount(logs.length)}건 표시 중 · ${dayLabel}${actionLabel} · 현재 조회 조건으로는 최대 ${limit}건까지만 표시됨${totalText}`;
+    }
   } catch (e) {
     if (status) status.textContent = `이력을 불러오지 못했습니다: ${e.message || e}`;
   }
