@@ -116,6 +116,30 @@ def history_stats(db: Session = Depends(get_db), current=Depends(require_role(mo
         .order_by(models.AuditLog.action_type.asc())
         .all()
     )
+    return schemas.HistoryStatsOut(
+        total_logs=total_logs,
+        logs_last_7_days=logs_last_7_days,
+        recent_30_days=recent_30_days,
+        logs_last_90_days=logs_last_90_days,
+        display_limit=DEFAULT_HISTORY_LIMIT,
+        current_window_days=DEFAULT_HISTORY_DAYS,
+        oldest_log=oldest_log,
+        newest_log=newest_log,
+        oldest_log_age_days=_age_days(oldest_log, now),
+        newest_log_age_minutes=_age_minutes(newest_log, now),
+        request_linked=request_linked,
+        request_unlinked=total_logs - request_linked,
+        actor_linked=actor_linked,
+        actor_missing=total_logs - actor_linked,
+        action_type_count=len(action_counts),
+        orphan_request_logs=None,
+        orphan_actor_logs=None,
+        orphan_target_logs=None,
+        by_action={action_type: count for action_type, count in action_counts},
+    )
+
+
+def _audit_orphan_counts(db: Session) -> tuple[int, int, int]:
     actor_user = aliased(models.User)
     target_user = aliased(models.User)
     orphan_request_logs = (
@@ -139,26 +163,17 @@ def history_stats(db: Session = Depends(get_db), current=Depends(require_role(mo
         .scalar()
         or 0
     )
-    return schemas.HistoryStatsOut(
-        total_logs=total_logs,
-        logs_last_7_days=logs_last_7_days,
-        recent_30_days=recent_30_days,
-        logs_last_90_days=logs_last_90_days,
-        display_limit=DEFAULT_HISTORY_LIMIT,
-        current_window_days=DEFAULT_HISTORY_DAYS,
-        oldest_log=oldest_log,
-        newest_log=newest_log,
-        oldest_log_age_days=_age_days(oldest_log, now),
-        newest_log_age_minutes=_age_minutes(newest_log, now),
-        request_linked=request_linked,
-        request_unlinked=total_logs - request_linked,
-        actor_linked=actor_linked,
-        actor_missing=total_logs - actor_linked,
-        action_type_count=len(action_counts),
+    return orphan_request_logs, orphan_actor_logs, orphan_target_logs
+
+
+@router.get("/diagnostics", response_model=schemas.HistoryDiagnosticsOut)
+def history_diagnostics(db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MASTER))):
+    orphan_request_logs, orphan_actor_logs, orphan_target_logs = _audit_orphan_counts(db)
+    return schemas.HistoryDiagnosticsOut(
         orphan_request_logs=orphan_request_logs,
         orphan_actor_logs=orphan_actor_logs,
         orphan_target_logs=orphan_target_logs,
-        by_action={action_type: count for action_type, count in action_counts},
+        checked_at=datetime.now(timezone.utc),
     )
 
 

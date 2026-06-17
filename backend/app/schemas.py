@@ -325,10 +325,17 @@ class HistoryStatsOut(BaseModel):
     actor_linked: int
     actor_missing: int
     action_type_count: int
+    orphan_request_logs: int | None = None
+    orphan_actor_logs: int | None = None
+    orphan_target_logs: int | None = None
+    by_action: dict[str, int] = Field(default_factory=dict)
+
+
+class HistoryDiagnosticsOut(BaseModel):
     orphan_request_logs: int
     orphan_actor_logs: int
     orphan_target_logs: int
-    by_action: dict[str, int] = Field(default_factory=dict)
+    checked_at: datetime
 
 
 class AuthAccountOut(BaseModel):

@@ -60,12 +60,14 @@ function renderStats(stats) {
   setStatText('history-stat-query-limit', '현재 조회 제한', `${formatCount(currentFilters().limit)}건`);
   setStatText('history-stat-request-unlinked', '신청 연결 없는 로그', `${formatCount(stats.request_unlinked)}건`);
   setStatText('history-stat-actor-missing', '실행자 정보 없는 로그', `${formatCount(stats.actor_missing)}건`);
-  setStatText('history-stat-orphan-request', '끊어진 신청 연결 로그', `${formatCount(stats.orphan_request_logs)}건`);
-  setStatText('history-stat-orphan-actor', '없는 실행자 로그', `${formatCount(stats.orphan_actor_logs)}건`);
-  setStatText('history-stat-orphan-target', '없는 대상자 로그', `${formatCount(stats.orphan_target_logs)}건`);
+  setStatText('history-stat-orphan-request', '끊어진 신청 연결 로그', '-');
+  setStatText('history-stat-orphan-actor', '없는 실행자 로그', '-');
+  setStatText('history-stat-orphan-target', '없는 대상자 로그', '-');
   setStatText('history-stat-oldest', '최초 로그', formatOptionalDate(stats.oldest_log));
   setStatText('history-stat-oldest-age', '최초 로그 경과', stats.oldest_log_age_days === null || stats.oldest_log_age_days === undefined ? '-' : `${formatCount(stats.oldest_log_age_days)}일`);
   setStatText('history-stat-newest', '최신 로그', formatAgeMinutes(stats.newest_log_age_minutes));
+  const diagnosticsStatus = document.getElementById('history-diagnostics-status');
+  if (diagnosticsStatus) diagnosticsStatus.textContent = '진단 전';
 
   const actionSelect = document.getElementById('history-action-type');
   if (!actionSelect) return;
@@ -95,6 +97,24 @@ async function loadHistoryStats() {
     if (status) status.textContent = '통계 기준: 전체 audit_logs';
   } catch (e) {
     if (status) status.textContent = `통계를 불러오지 못했습니다: ${e.message || e}`;
+  }
+}
+
+async function loadHistoryDiagnostics() {
+  const button = document.getElementById('history-diagnostics-run');
+  const status = document.getElementById('history-diagnostics-status');
+  if (button) button.disabled = true;
+  if (status) status.textContent = '진단 중...';
+  try {
+    const diagnostics = await apiRequest('/history/diagnostics');
+    setStatText('history-stat-orphan-request', '끊어진 신청 연결 로그', `${formatCount(diagnostics.orphan_request_logs)}건`);
+    setStatText('history-stat-orphan-actor', '없는 실행자 로그', `${formatCount(diagnostics.orphan_actor_logs)}건`);
+    setStatText('history-stat-orphan-target', '없는 대상자 로그', `${formatCount(diagnostics.orphan_target_logs)}건`);
+    if (status) status.textContent = `진단 완료: ${formatOptionalDate(diagnostics.checked_at)}`;
+  } catch (e) {
+    if (status) status.textContent = `연결 진단을 불러오지 못했습니다: ${e.message || e}`;
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -159,6 +179,7 @@ function bindHistoryControls(currentUser) {
     document.getElementById(id)?.addEventListener('change', () => loadHistory(currentUser));
   });
   document.getElementById('history-refresh')?.addEventListener('click', () => loadHistory(currentUser));
+  document.getElementById('history-diagnostics-run')?.addEventListener('click', () => loadHistoryDiagnostics());
 }
 
 async function initHistory(currentUser) {
