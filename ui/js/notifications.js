@@ -7,6 +7,15 @@ const bellSvg = `
 </svg>
 `;
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function safeTime(value) {
+  const time = value ? Date.parse(value) : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
 const statusText = {
   PENDING: '승인 대기',
   APPROVED: '승인됨',
@@ -17,7 +26,7 @@ const statusText = {
 function buildItem(text, status, meta) {
   const li = document.createElement('li');
   li.className = `notif-item ${status ? status.toLowerCase() : ''}`;
-  li.innerHTML = `<div>${text}</div>${meta ? `<div class="muted small">${meta}</div>` : ''}`;
+  li.innerHTML = `<div>${escapeHtml(text)}</div>${meta ? `<div class="muted small">${escapeHtml(meta)}</div>` : ''}`;
   return li;
 }
 
@@ -124,7 +133,7 @@ function buildRequestEvents(requests, userMap, shiftMap, viewerRole) {
       }
     }
   });
-  return events.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  return events.sort((a, b) => safeTime(b.created_at) - safeTime(a.created_at));
 }
 
 function buildFeedEvents(entries, userMap, shiftMap) {
@@ -158,7 +167,7 @@ function buildFeedEvents(entries, userMap, shiftMap) {
       created_at: entry.created_at
     });
   });
-  return events.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  return events.sort((a, b) => safeTime(b.created_at) - safeTime(a.created_at));
 }
 
 async function fetchNotifications(user) {
@@ -171,7 +180,13 @@ async function fetchNotifications(user) {
     return buildRequestEvents(source, userMap, shiftMap, user.role).slice(0, 15);
   }
   const feed = await apiRequest('/requests/feed');
-  return buildFeedEvents(feed, userMap, shiftMap).slice(0, 15);
+  const events = buildFeedEvents(feed, userMap, shiftMap);
+  const seen = new Set();
+  return events.filter((event) => {
+    if (seen.has(event.id)) return false;
+    seen.add(event.id);
+    return true;
+  }).slice(0, 15);
 }
 
 export async function initNotifications(user) {
@@ -204,7 +219,7 @@ export async function initNotifications(user) {
   function computeUnread(items) {
     const lastSeen = parseInt(localStorage.getItem(lastSeenKey) || '0', 10);
     return items.filter((i) => {
-      const created = i.created_at ? Date.parse(i.created_at) : 0;
+      const created = safeTime(i.created_at);
       return created > lastSeen;
     }).length;
   }
@@ -227,7 +242,7 @@ export async function initNotifications(user) {
         badgeEl.style.display = unread ? 'inline-block' : 'none';
       }
     } catch (e) {
-      listEl.innerHTML = `<li class="error">알림을 불러오지 못했습니다: ${e.message || e}</li>`;
+      listEl.innerHTML = `<li class="error">알림을 불러오지 못했습니다: ${escapeHtml(e.message || e)}</li>`;
       if (badgeEl) badgeEl.style.display = 'none';
     }
   }
@@ -245,7 +260,7 @@ export async function initNotifications(user) {
     panel.classList.toggle('show', willShow);
     if (willShow) {
       refresh().then(() => {
-        const latestTime = latest.length ? Date.parse(latest[0].created_at || Date.now()) : Date.now();
+        const latestTime = latest.length ? (safeTime(latest[0].created_at) || Date.now()) : Date.now();
         localStorage.setItem(lastSeenKey, latestTime.toString());
         if (badgeEl) badgeEl.style.display = 'none';
       });
