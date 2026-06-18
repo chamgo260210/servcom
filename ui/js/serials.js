@@ -763,6 +763,24 @@ function bindCanvasEvents(editorMode) {
 
     const target = e.target.closest('.wall-line, .shelf-group');
 
+    if (editorMode && currentMode === 'wall' && e.button === 0) {
+      const worldPt = getWorldCoordinates(e, canvasEl);
+      if (worldPt.x < 0 || worldPt.y < 0 || worldPt.x > currentLayout.width || worldPt.y > currentLayout.height) {
+        return;
+      }
+
+      e.preventDefault();
+      isDrawing = true;
+      isPanning = false;
+      isDraggingShelf = false;
+      const snapX = Math.round(worldPt.x / GRID_SIZE) * GRID_SIZE;
+      const snapY = Math.round(worldPt.y / GRID_SIZE) * GRID_SIZE;
+      startPoint = { x: snapX, y: snapY };
+      activeLine = createSVGLine(snapX, snapY, snapX, snapY, ['wall-line', 'preview']);
+      renderCanvas();
+      return;
+    }
+
     // Pan: Middle Click OR Left Click on Empty Background (조회 페이지에서도 작동)
     if (e.button === 1 || (!target && e.button === 0)) {
       isPanning = true;
@@ -772,22 +790,7 @@ function bindCanvasEvents(editorMode) {
     }
 
     if (editorMode && e.button === 0) {
-      const worldPt = getWorldCoordinates(e, canvasEl);
-
-      if (currentMode === 'wall') {
-        // Bounds check
-        if (worldPt.x < 0 || worldPt.y < 0 || worldPt.x > currentLayout.width || worldPt.y > currentLayout.height) {
-          return;
-        }
-
-        isDrawing = true;
-        const snapX = Math.round(worldPt.x / GRID_SIZE) * GRID_SIZE;
-        const snapY = Math.round(worldPt.y / GRID_SIZE) * GRID_SIZE;
-        startPoint = { x: snapX, y: snapY };
-        // SOLID preview line (no stroke-dasharray)
-        activeLine = createSVGLine(snapX, snapY, snapX, snapY, ['wall-line', 'preview']);
-        renderCanvas();
-      } else if (currentMode === 'select') {
+      if (currentMode === 'select') {
         if (target) {
           if (target.classList.contains('wall-line')) {
             selectElement('wall', { index: parseInt(target.dataset.index), data: currentLayout.walls[parseInt(target.dataset.index)] });
