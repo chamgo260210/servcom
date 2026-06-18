@@ -78,6 +78,7 @@ WORK_SYSTEM_AUDIT_ACTIONS = {
     "REQUEST_CANCEL",
     "RESET_DATA",
 }
+RESTORE_POINT_RETENTION_LIMIT = 10
 FULL_DELETE_ORDER = [
     "notice_reads",
     "notice_targets",
@@ -1090,6 +1091,48 @@ def _merge_full_audit_logs(db: Session, data: dict[str, list[dict]]) -> int:
     return inserted_count
 
 
+def _safe_delete_restore_point_file(backup: models.DataBackup) -> str | None:
+    try:
+        storage_root = Path(get_settings().BACKUP_STORAGE_DIR).resolve()
+        file_path = Path(backup.file_path).resolve()
+    except (OSError, RuntimeError) as exc:
+        return f"{backup.id}: invalid backup path ({exc})"
+    if file_path != storage_root and storage_root not in file_path.parents:
+        return f"{backup.id}: backup path is outside storage root"
+    if not file_path.exists():
+        return None
+    try:
+        file_path.unlink()
+    except OSError as exc:
+        return f"{backup.id}: failed to delete restore point file ({exc})"
+    return None
+
+
+def _prune_restore_points(db: Session, *, keep: int = RESTORE_POINT_RETENTION_LIMIT) -> list[str]:
+    if keep < 1:
+        keep = 1
+    stale_restore_points = (
+        db.query(models.DataBackup)
+        .filter(
+            models.DataBackup.kind == "RESTORE_POINT",
+            models.DataBackup.deleted_at.is_(None),
+        )
+        .order_by(models.DataBackup.created_at.desc(), models.DataBackup.id.desc())
+        .offset(keep)
+        .all()
+    )
+    warnings: list[str] = []
+    deleted_at = datetime.now(timezone.utc)
+    for backup in stale_restore_points:
+        warning = _safe_delete_restore_point_file(backup)
+        if warning:
+            warnings.append(warning)
+            continue
+        backup.status = "DELETED"
+        backup.deleted_at = deleted_at
+    return warnings
+
+
 def restore_backup(
     db: Session,
     *,
@@ -1160,6 +1203,7 @@ def restore_backup(
     audit_logs_merged = 0
     if domain == "FULL":
         audit_logs_merged = _merge_full_audit_logs(db, validation["_coerced_data"])
+    cleanup_warnings = _prune_restore_points(db)
     job.status = "SUCCESS"
     job.finished_at = datetime.now(timezone.utc)
     summary = {
@@ -1167,6 +1211,8 @@ def restore_backup(
         "pre_restore_backup_id": str(pre_restore.id),
         "restore_point_backup_id": str(pre_restore.id),
     }
+    if cleanup_warnings:
+        summary["restore_point_cleanup_warnings"] = cleanup_warnings
     if domain == "FULL":
         summary["audit_logs_merged"] = audit_logs_merged
     job.summary = summary
@@ -1222,6 +1268,7 @@ def restore_uploaded_backup(
     )
     _delete_domain_rows(db, domain)
     _insert_rows(db, domain, validation["_coerced_data"])
+    cleanup_warnings = _prune_restore_points(db)
     job.status = "SUCCESS"
     job.finished_at = datetime.now(timezone.utc)
     job.summary = {
@@ -1230,4 +1277,6 @@ def restore_uploaded_backup(
         "restore_point_backup_id": str(pre_restore.id),
         "source": "UPLOAD",
     }
+    if cleanup_warnings:
+        job.summary["restore_point_cleanup_warnings"] = cleanup_warnings
     return job, validation
