@@ -12,7 +12,7 @@ const CONFIGS = {
     canExcel: false,
     restorable: true,
     masterOnly: false,
-    restoreWarning: 'WORK 복원은 MEMBER 계정과 근무 데이터를 백업 기준으로 복원합니다. 백업에 없는 기존 MEMBER는 비활성화됩니다.',
+    restoreWarning: 'WORK 복원은 구성원 계정, 근무 배정, 변경 신청의 현재 상태를 복원합니다. 과거 활동 로그는 복원 대상이 아니며, 복원된 신청은 현재 상태 기준으로 피드에 보강 표시됩니다. 백업에 없는 기존 MEMBER는 비활성화됩니다.',
   },
   WORK_SYSTEM: {
     activePage: 'work-system-backup-management',
