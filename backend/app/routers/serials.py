@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..deps import get_db
+from ..core.audit import record_log
 from ..core.roles import get_current_user, require_role
 
 router = APIRouter(prefix="/serials", tags=["serials"])
@@ -157,6 +158,13 @@ def create_publication(
         updated_by=current_user.id,
     )
     db.add(publication)
+    db.flush()
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_PUBLICATION_CREATE",
+        details={"publication_id": str(publication.id), "title": publication.title},
+    )
     db.commit()
     db.refresh(publication)
     return publication
@@ -220,6 +228,12 @@ def update_publication(
     if payload.remark is not None:
         publication.remark = payload.remark
     publication.updated_by = current_user.id
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_PUBLICATION_UPDATE",
+        details={"publication_id": str(publication.id), "title": publication.title},
+    )
     db.commit()
     db.refresh(publication)
     return publication
@@ -232,6 +246,12 @@ def delete_publication(
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     publication = _get_publication(db, publication_id)
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_PUBLICATION_DELETE",
+        details={"publication_id": str(publication.id), "title": publication.title},
+    )
     db.delete(publication)
     db.commit()
     return None
@@ -264,6 +284,13 @@ def create_layout(
         updated_by=current_user.id,
     )
     db.add(layout)
+    db.flush()
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_LAYOUT_UPDATE",
+        details={"layout_id": str(layout.id), "name": layout.name, "operation": "CREATE"},
+    )
     db.commit()
     db.refresh(layout)
     return layout
@@ -290,6 +317,12 @@ def update_layout(
     if payload.walls is not None:
         layout.walls = payload.walls
     layout.updated_by = current_user.id
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_LAYOUT_UPDATE",
+        details={"layout_id": str(layout.id), "name": layout.name, "operation": "UPDATE"},
+    )
     db.commit()
     db.refresh(layout)
     return layout
@@ -304,6 +337,12 @@ def delete_layout(
     layout = db.query(models.SerialLayout).filter(models.SerialLayout.id == layout_id).first()
     if not layout:
         raise HTTPException(status_code=404, detail="배치도를 찾을 수 없습니다.")
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_LAYOUT_UPDATE",
+        details={"layout_id": str(layout.id), "name": layout.name, "operation": "DELETE"},
+    )
     db.delete(layout)
     db.commit()
     return None
@@ -337,6 +376,13 @@ def create_shelf_type(
         updated_by=current_user.id,
     )
     db.add(shelf_type)
+    db.flush()
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_SHELF_TYPE_CREATE",
+        details={"shelf_type_id": str(shelf_type.id), "name": shelf_type.name},
+    )
     db.commit()
     db.refresh(shelf_type)
     return shelf_type
@@ -365,6 +411,12 @@ def update_shelf_type(
     if payload.note is not None:
         shelf_type.note = payload.note
     shelf_type.updated_by = current_user.id
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_SHELF_TYPE_UPDATE",
+        details={"shelf_type_id": str(shelf_type.id), "name": shelf_type.name},
+    )
     db.commit()
     db.refresh(shelf_type)
     return shelf_type
@@ -379,6 +431,12 @@ def delete_shelf_type(
     shelf_type = db.query(models.SerialShelfType).filter(models.SerialShelfType.id == shelf_type_id).first()
     if not shelf_type:
         raise HTTPException(status_code=404, detail="서가 타입을 찾을 수 없습니다.")
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_SHELF_TYPE_DELETE",
+        details={"shelf_type_id": str(shelf_type.id), "name": shelf_type.name},
+    )
     db.delete(shelf_type)
     db.commit()
     return None
@@ -417,6 +475,13 @@ def create_shelf(
         updated_by=current_user.id,
     )
     db.add(shelf)
+    db.flush()
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_SHELF_CREATE",
+        details={"shelf_id": str(shelf.id), "layout_id": str(shelf.layout_id), "code": shelf.code},
+    )
     db.commit()
     db.refresh(shelf)
     return shelf
@@ -447,6 +512,12 @@ def update_shelf(
     if payload.note is not None:
         shelf.note = payload.note
     shelf.updated_by = current_user.id
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_SHELF_UPDATE",
+        details={"shelf_id": str(shelf.id), "layout_id": str(shelf.layout_id), "code": shelf.code},
+    )
     db.commit()
     db.refresh(shelf)
     return shelf
@@ -461,6 +532,12 @@ def delete_shelf(
     shelf = db.query(models.SerialShelf).filter(models.SerialShelf.id == shelf_id).first()
     if not shelf:
         raise HTTPException(status_code=404, detail="서가를 찾을 수 없습니다.")
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="SERIAL_SHELF_DELETE",
+        details={"shelf_id": str(shelf.id), "layout_id": str(shelf.layout_id), "code": shelf.code},
+    )
     db.delete(shelf)
     db.commit()
     return None

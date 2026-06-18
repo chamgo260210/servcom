@@ -78,6 +78,40 @@ WORK_SYSTEM_AUDIT_ACTIONS = {
     "REQUEST_CANCEL",
     "RESET_DATA",
 }
+ROLLBACK_EXCLUDED_ACTIONS = {
+    "DATA_RESTORE_START",
+    "DATA_RESTORE_SUCCESS",
+    "DATA_RESTORE_FAILED",
+    "DATA_RESTORE_ROLLBACK",
+    "DATA_BACKUP_CREATE",
+    "DATA_BACKUP_CREATE_FULL",
+    "DATA_BACKUP_CREATE_WORK",
+    "DATA_BACKUP_CREATE_WORK_SYSTEM",
+    "DATA_BACKUP_VALIDATE",
+    "DATA_BACKUP_PREVIEW",
+}
+WORK_CHANGE_ACTIONS = {
+    "REQUEST_SUBMIT",
+    "REQUEST_APPROVE",
+    "REQUEST_REJECT",
+    "REQUEST_CANCEL",
+    "REQUEST_REOPEN",
+    "USER_CREATE",
+    "USER_UPDATE",
+    "USER_DELETE",
+    "CREDENTIAL_UPDATE",
+    "SHIFT_CREATE",
+    "SHIFT_UPDATE",
+    "SHIFT_DELETE",
+    "USER_SHIFT_CREATE",
+    "USER_SHIFT_UPDATE",
+    "USER_SHIFT_DELETE",
+    "ASSIGN_SLOT",
+}
+WORK_RESET_SCOPES = {"members", "operators_members"}
+VISITOR_RESET_SCOPES = {"visitors_all"}
+SERIAL_RESET_SCOPES = {"serials_all"}
+FULL_RESET_SCOPES = {"all", "members", "operators_members", "visitors_all", "serials_all"}
 RESTORE_POINT_RETENTION_LIMIT = 10
 FULL_DELETE_ORDER = [
     "notice_reads",
@@ -105,6 +139,70 @@ FULL_INSERT_ORDER = [
 ]
 
 USER_REFERENCE_COLUMNS = {"created_by", "updated_by"}
+
+
+def _audit_details(log: models.AuditLog) -> dict:
+    return log.details if isinstance(log.details, dict) else {}
+
+
+def _reset_scope(log: models.AuditLog) -> str | None:
+    scope = _audit_details(log).get("scope")
+    return str(scope) if scope is not None else None
+
+
+def _is_rollback_excluded_action(action_type: str) -> bool:
+    return action_type in ROLLBACK_EXCLUDED_ACTIONS or action_type.startswith("DATA_")
+
+
+def _audit_log_matches_domain(log: models.AuditLog, domain: str) -> bool:
+    action_type = log.action_type or ""
+    if _is_rollback_excluded_action(action_type):
+        return False
+    scope = _reset_scope(log)
+    if action_type == "RESET_DATA":
+        if domain in {"WORK", "WORK_SYSTEM"}:
+            return scope in WORK_RESET_SCOPES
+        if domain == "VISITORS":
+            return scope in VISITOR_RESET_SCOPES
+        if domain == "SERIALS":
+            return scope in SERIAL_RESET_SCOPES
+        if domain == "FULL":
+            return scope in FULL_RESET_SCOPES
+        return False
+    if domain in {"WORK", "WORK_SYSTEM"}:
+        return action_type in WORK_CHANGE_ACTIONS
+    if domain == "VISITORS":
+        return action_type.startswith("VISITOR")
+    if domain == "SERIALS":
+        return action_type.startswith("SERIAL")
+    if domain == "FULL":
+        return (
+            action_type in WORK_CHANGE_ACTIONS
+            or action_type.startswith(("NOTICE", "USER", "REQUEST", "VISITOR", "SERIAL", "SHIFT", "USER_SHIFT"))
+            or action_type == "CREDENTIAL_UPDATE"
+        )
+    return False
+
+
+def _domain_changed_after_restore(
+    db: Session,
+    domain: str,
+    completed_at: datetime | None,
+    restore_job_id=None,
+) -> bool:
+    if completed_at is None:
+        return False
+    normalized_domain = normalize_domain(domain)
+    logs = (
+        db.query(models.AuditLog)
+        .filter(models.AuditLog.created_at > completed_at)
+        .order_by(models.AuditLog.created_at.asc())
+        .all()
+    )
+    for log in logs:
+        if _audit_log_matches_domain(log, normalized_domain):
+            return True
+    return False
 
 
 def _required_tables(domain: str) -> list[str]:

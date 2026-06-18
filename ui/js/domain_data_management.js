@@ -69,7 +69,7 @@ const validationState = new Map();
 let currentUser = null;
 let lastUploadValidation = null;
 let currentPreviewBackupId = null;
-let showRestorePointFiles = true;
+let showRestorePointFiles = false;
 let lastStorageItems = [];
 
 const backupList = document.getElementById('backup-list');
@@ -178,13 +178,26 @@ function canRollbackJob(job) {
   return job.status === 'SUCCESS' && summary.rollback_available === true && !summary.rollback_used;
 }
 
+function rollbackUnavailableMessage(reason) {
+  const messages = {
+    RECENT_RESTORE_ONLY: '해당 도메인의 최근 복원만 되돌릴 수 있습니다.',
+    DOMAIN_CHANGED_AFTER_RESTORE: '복원 이후 해당 도메인 데이터가 변경되어 되돌릴 수 없습니다.',
+    RESTORE_COMPLETION_UNKNOWN: '복원 완료 시각을 확인할 수 없어 되돌릴 수 없습니다.',
+    ROLLBACK_ALREADY_USED: '이미 되돌린 복원입니다.',
+    RESTORE_POINT_MISSING: '복원 전 지점 파일이 없어 되돌릴 수 없습니다.',
+    INVALID_STATUS: '되돌릴 수 없는 복원 상태입니다.',
+  };
+  return messages[reason] || null;
+}
+
 function rollbackCellHtml(job) {
   const summary = job.summary || {};
   if (canRollbackJob(job)) {
     return `<button class="btn tiny danger" type="button" data-rollback="${job.id}">복원 전 상태로 되돌리기</button>`;
   }
-  if (summary.rollback_unavailable_reason === 'RECENT_RESTORE_ONLY') {
-    return '<span class="muted small">최근 복원만 되돌릴 수 있습니다</span>';
+  const unavailableMessage = rollbackUnavailableMessage(summary.rollback_unavailable_reason);
+  if (unavailableMessage) {
+    return `<span class="muted small">${escapeHtml(unavailableMessage)}</span>`;
   }
   return '-';
 }
@@ -410,7 +423,7 @@ function ensureStorageRestorePointControls() {
   note.innerHTML = '복원 지점은 복원 실행 직전에 자동 생성되는 백업이며, 되돌리기 용도로 사용됩니다. 일반 백업 목록에는 표시되지 않습니다.';
   const controls = document.createElement('label');
   controls.className = 'inline-input';
-  controls.innerHTML = '<input id="storage-restore-point-toggle" type="checkbox" checked /> 복원 지점 파일도 표시';
+  controls.innerHTML = '<input id="storage-restore-point-toggle" type="checkbox" /> 복원 지점 파일도 표시';
   section.insertBefore(note, tableWrap);
   section.insertBefore(controls, tableWrap);
   controls.querySelector('#storage-restore-point-toggle')?.addEventListener('change', (event) => {

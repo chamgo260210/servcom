@@ -30,6 +30,7 @@ from ..services.backup_storage_service import (
 )
 from ..services.excel_export_service import build_serials_excel, build_visitors_excel
 from ..services.restore_service import (
+    _domain_changed_after_restore,
     parse_backup_json_bytes,
     restore_backup,
     restore_uploaded_backup,
@@ -173,17 +174,87 @@ def _restore_point_info(db: Session, restore_job: models.DataRestoreJob) -> dict
     }
 
 
-def _latest_success_restore_job_id(db: Session):
+ROLLBACK_UNAVAILABLE_MESSAGES = {
+    "INVALID_STATUS": "되돌릴 수 없는 복원 상태입니다.",
+    "RESTORE_COMPLETION_UNKNOWN": "복원 완료 시각을 확인할 수 없어 되돌릴 수 없습니다.",
+    "ROLLBACK_ALREADY_USED": "이미 되돌린 복원입니다.",
+    "RESTORE_POINT_MISSING": "복원 전 지점 파일이 없어 되돌릴 수 없습니다.",
+    "RECENT_RESTORE_ONLY": "해당 도메인의 최근 복원만 되돌릴 수 있습니다.",
+    "DOMAIN_CHANGED_AFTER_RESTORE": "복원 이후 해당 도메인 데이터가 변경되어 되돌릴 수 없습니다.",
+}
+
+
+def _latest_success_restore_job_id(db: Session, domain: str | None = None):
+    query = db.query(models.DataRestoreJob).filter(
+        models.DataRestoreJob.status == "SUCCESS",
+        models.DataRestoreJob.mode == "REPLACE",
+    )
+    if domain:
+        query = query.filter(models.DataRestoreJob.domain == normalize_domain(domain))
     latest_job = (
+        query
+        .order_by(models.DataRestoreJob.finished_at.desc(), models.DataRestoreJob.started_at.desc())
+        .first()
+    )
+    return latest_job.id if latest_job else None
+
+
+def _rollback_unavailable_reason(
+    db: Session,
+    job: models.DataRestoreJob,
+    *,
+    latest_success_restore_job_id=None,
+) -> str | None:
+    summary = dict(job.summary or {})
+    domain = normalize_domain(job.domain)
+    if job.status != "SUCCESS" or job.mode != "REPLACE":
+        return "INVALID_STATUS"
+    if job.finished_at is None:
+        return "RESTORE_COMPLETION_UNKNOWN"
+    if summary.get("rollback_used"):
+        return "ROLLBACK_ALREADY_USED"
+    restore_point_backup = _get_restore_point_backup(db, job)
+    if (
+        not bool(_restore_point_id_from_summary(summary))
+        or restore_point_backup is None
+        or restore_point_backup.kind != "RESTORE_POINT"
+        or normalize_domain(restore_point_backup.domain) != domain
+        or not _safe_backup_file_exists(restore_point_backup)
+    ):
+        return "RESTORE_POINT_MISSING"
+    if latest_success_restore_job_id is None:
+        latest_success_restore_job_id = _latest_success_restore_job_id(db, domain)
+    if job.id != latest_success_restore_job_id:
+        return "RECENT_RESTORE_ONLY"
+    if _domain_changed_after_restore(db, domain, job.finished_at, job.id):
+        return "DOMAIN_CHANGED_AFTER_RESTORE"
+    return None
+
+
+def _raise_rollback_unavailable(reason: str) -> None:
+    raise HTTPException(status_code=400, detail=ROLLBACK_UNAVAILABLE_MESSAGES[reason])
+
+
+def _latest_success_restore_job_ids_by_domain(db: Session) -> dict[str, object]:
+    jobs = (
         db.query(models.DataRestoreJob)
         .filter(
             models.DataRestoreJob.status == "SUCCESS",
             models.DataRestoreJob.mode == "REPLACE",
         )
-        .order_by(models.DataRestoreJob.finished_at.desc(), models.DataRestoreJob.started_at.desc())
-        .first()
+        .order_by(
+            models.DataRestoreJob.domain.asc(),
+            models.DataRestoreJob.finished_at.desc(),
+            models.DataRestoreJob.started_at.desc(),
+        )
+        .all()
     )
-    return latest_job.id if latest_job else None
+    latest_by_domain = {}
+    for job in jobs:
+        domain = normalize_domain(job.domain)
+        if domain not in latest_by_domain:
+            latest_by_domain[domain] = job.id
+    return latest_by_domain
 
 
 def _restore_job_response(
@@ -195,36 +266,31 @@ def _restore_job_response(
     summary = dict(job.summary or {})
     domain = normalize_domain(job.domain)
     if latest_success_restore_job_id is None:
-        latest_success_restore_job_id = _latest_success_restore_job_id(db)
+        latest_success_restore_job_id = _latest_success_restore_job_id(db, domain)
     is_latest_success_restore = job.id == latest_success_restore_job_id
     try:
         restore_point_backup = _get_restore_point_backup(db, job)
         restore_point_info = _restore_point_info(db, job)
+        rollback_unavailable_reason = _rollback_unavailable_reason(
+            db,
+            job,
+            latest_success_restore_job_id=latest_success_restore_job_id,
+        )
         rollback_available = (
-            job.status == "SUCCESS"
-            and job.mode == "REPLACE"
-            and is_latest_success_restore
-            and bool(_restore_point_id_from_summary(summary))
-            and not summary.get("rollback_used")
-            and restore_point_backup is not None
-            and restore_point_backup.kind == "RESTORE_POINT"
-            and _safe_backup_file_exists(restore_point_backup)
+            rollback_unavailable_reason is None
             and (domain != "FULL" or current_user.role == models.UserRole.MASTER)
         )
     except Exception:
         restore_point_info = {"id": _restore_point_id_from_summary(summary), "status": "UNAVAILABLE", "file_exists": False}
+        rollback_unavailable_reason = "RESTORE_POINT_MISSING"
         rollback_available = False
     summary["restore_point"] = restore_point_info
     summary["rollback_available"] = rollback_available
     summary["is_latest_success_restore"] = is_latest_success_restore
-    if (
-        job.status == "SUCCESS"
-        and job.mode == "REPLACE"
-        and not is_latest_success_restore
-        and bool(_restore_point_id_from_summary(summary))
-        and not summary.get("rollback_used")
-    ):
-        summary["rollback_unavailable_reason"] = "RECENT_RESTORE_ONLY"
+    if rollback_unavailable_reason:
+        summary["rollback_unavailable_reason"] = rollback_unavailable_reason
+    else:
+        summary.pop("rollback_unavailable_reason", None)
     return {
         "id": job.id,
         "backup_id": job.backup_id,
@@ -705,21 +771,18 @@ def rollback_restore_job(
         raise HTTPException(status_code=404, detail="Restore job not found")
     domain = _ensure_domain_access(restore_job.domain, current_user, action="rollback")
     summary = dict(restore_job.summary or {})
-    if restore_job.status != "SUCCESS":
-        raise HTTPException(status_code=400, detail="Only successful restore jobs can be rolled back")
-    if restore_job.mode != "REPLACE" or restore_job.id != _latest_success_restore_job_id(db):
-        raise HTTPException(status_code=400, detail="Only the latest successful restore job can be rolled back")
-    if summary.get("rollback_used"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rollback was already used for this restore job")
+    rollback_unavailable_reason = _rollback_unavailable_reason(db, restore_job)
+    if rollback_unavailable_reason:
+        _raise_rollback_unavailable(rollback_unavailable_reason)
     restore_point_backup = _get_restore_point_backup(db, restore_job)
     if not restore_point_backup:
-        raise HTTPException(status_code=404, detail="Restore point backup not found")
+        _raise_rollback_unavailable("RESTORE_POINT_MISSING")
     if restore_point_backup.kind != "RESTORE_POINT":
-        raise HTTPException(status_code=400, detail="Rollback requires a restore point backup")
+        _raise_rollback_unavailable("RESTORE_POINT_MISSING")
     if normalize_domain(restore_point_backup.domain) != domain:
-        raise HTTPException(status_code=400, detail="Restore point domain does not match restore job")
+        _raise_rollback_unavailable("RESTORE_POINT_MISSING")
     if not _safe_backup_file_exists(restore_point_backup):
-        raise HTTPException(status_code=404, detail="Restore point backup file not found")
+        _raise_rollback_unavailable("RESTORE_POINT_MISSING")
     if payload.confirm_text != "되돌립니다":
         raise HTTPException(status_code=400, detail="Invalid rollback confirmation text")
 
@@ -801,9 +864,14 @@ def list_restore_jobs(
     if current_user.role != models.UserRole.MASTER:
         query = query.filter(models.DataRestoreJob.domain.in_(("VISITORS", "SERIALS", "WORK")))
     jobs = query.order_by(models.DataRestoreJob.started_at.desc()).limit(100).all()
-    latest_success_restore_job_id = _latest_success_restore_job_id(db)
+    latest_success_restore_job_ids = _latest_success_restore_job_ids_by_domain(db)
     return [
-        _restore_job_response(db, job, current_user, latest_success_restore_job_id)
+        _restore_job_response(
+            db,
+            job,
+            current_user,
+            latest_success_restore_job_ids.get(normalize_domain(job.domain)),
+        )
         for job in jobs
     ]
 

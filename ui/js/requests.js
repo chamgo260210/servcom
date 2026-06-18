@@ -41,6 +41,37 @@ function formatDateOnly(date) {
   return `${y}-${m}-${d}`;
 }
 
+function todaySeoulKey() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function isBeforeTodaySeoul(dateStr) {
+  return Boolean(dateStr) && dateStr < todaySeoulKey();
+}
+
+function setupRequestDateInput() {
+  const dateInput = document.getElementById('req-date');
+  if (!dateInput) return;
+  const today = todaySeoulKey();
+  dateInput.min = today;
+  if (!dateInput.value || dateInput.value < today) {
+    dateInput.value = today;
+  }
+}
+
+function canCancelRequest(req) {
+  if (req.status === 'PENDING') return true;
+  if (req.status === 'APPROVED') return !isBeforeTodaySeoul(req.target_date);
+  return false;
+}
+
 let shiftCache = null;
 let slotCells = new Map();
 let selectedSlots = new Set();
@@ -268,7 +299,7 @@ async function refreshAssignedSlots() {
   updatePreview();
 
   const userId = getTargetUserId();
-  const dateStr = document.getElementById('req-date').value || new Date().toISOString().slice(0, 10);
+  const dateStr = document.getElementById('req-date').value || todaySeoulKey();
   if (!userId || !dateStr) {
     applyDayDisable();
     return true;
@@ -313,6 +344,12 @@ async function submitRequest(event) {
 
   if (!target_date) {
     alert('신청 날짜를 선택하세요.');
+    submitBtn?.classList.remove('loading');
+    submitBtn && (submitBtn.disabled = false, submitBtn.textContent = '신청 제출');
+    return;
+  }
+  if (isBeforeTodaySeoul(target_date)) {
+    alert('오늘 이전 날짜에는 근무 변경 신청을 할 수 없습니다.');
     submitBtn?.classList.remove('loading');
     submitBtn && (submitBtn.disabled = false, submitBtn.textContent = '신청 제출');
     return;
@@ -379,10 +416,15 @@ async function submitRequest(event) {
 }
 
 async function cancelRequest(id) {
-  await apiRequest(`/requests/${id}/cancel`, { method: 'POST' });
-  await loadMyRequests();
-  await refreshAssignedSlots();
-  triggerNotificationsRefresh();
+  try {
+    await apiRequest(`/requests/${id}/cancel`, { method: 'POST' });
+    await loadMyRequests();
+    await refreshAssignedSlots();
+    triggerNotificationsRefresh();
+  } catch (e) {
+    alert(e.message || e);
+    await loadMyRequests();
+  }
 }
 
 async function loadMyRequests() {
@@ -451,7 +493,7 @@ async function loadMyRequests() {
     container.appendChild(metaList);
     container.appendChild(reason);
 
-    if (r.status === 'PENDING' || r.status === 'APPROVED') {
+    if (canCancelRequest(r)) {
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn tiny muted';
       cancelBtn.textContent = '신청 취소';
@@ -530,10 +572,17 @@ async function loadPendingRequests() {
 }
 
 async function act(id, action) {
-  await apiRequest(`/requests/${id}/${action}`, { method: 'POST' });
-  await loadPendingRequests();
-  await renderRequestFeed();
-  triggerNotificationsRefresh();
+  try {
+    await apiRequest(`/requests/${id}/${action}`, { method: 'POST' });
+    await loadPendingRequests();
+    await renderRequestFeed();
+    triggerNotificationsRefresh();
+  } catch (e) {
+    alert(e.message || e);
+    await loadPendingRequests();
+    await renderRequestFeed();
+    triggerNotificationsRefresh();
+  }
 }
 
 async function renderRequestFeed() {
@@ -626,6 +675,7 @@ function bindFormEvents() {
   const dateInput = document.getElementById('req-date');
   const typeSelect = document.getElementById('req-type');
   const userSelect = document.getElementById('req-user');
+  setupRequestDateInput();
   if (dateInput) dateInput.addEventListener('change', refreshAssignedSlots);
   if (typeSelect) typeSelect.addEventListener('change', () => {
     resetSelection();
@@ -644,6 +694,7 @@ function initSlotSelection() {
 async function initRequestPage(current) {
   currentUser = current;
   await ensureShifts();
+  setupRequestDateInput();
   initSlotSelection();
   await refreshAssignedSlots();
   if (currentUser && currentUser.role !== 'MEMBER') {
@@ -658,6 +709,7 @@ async function initRequestPage(current) {
 async function initRequestForm(current) {
   currentUser = current;
   await ensureShifts();
+  setupRequestDateInput();
   initSlotSelection();
   await refreshAssignedSlots();
   if (currentUser && currentUser.role !== 'MEMBER') {

@@ -1,5 +1,6 @@
 ﻿# File: /backend/app/routers/requests.py
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,62 @@ from ..core.audit import record_log
 from ..services.schedule_calc import week_events
 
 router = APIRouter(prefix="/requests", tags=["requests"])
+
+SEOUL_TZ = ZoneInfo("Asia/Seoul")
+PAST_REQUEST_CREATE_MESSAGE = "오늘 이전 날짜에는 근무 변경 신청을 할 수 없습니다."
+PAST_APPROVED_CANCEL_MESSAGE = "이미 지난 근무일의 승인 신청은 취소할 수 없습니다."
+PAST_DECISION_MESSAGE = "이미 지난 근무일의 신청은 승인/거절할 수 없습니다."
+
+
+def _today_seoul():
+    return datetime.now(SEOUL_TZ).date()
+
+
+def _is_past_target(target_date):
+    return target_date < _today_seoul()
+
+
+def _record_request_cancel_log(db: Session, req: models.ShiftRequest, actor_id: str | None):
+    record_log(
+        db,
+        actor_id=str(actor_id) if actor_id else None,
+        action="REQUEST_CANCEL",
+        target_user_id=str(req.user_id),
+        request_id=str(req.id),
+        details={
+            "type": req.type.value,
+            "cancel_reason": req.cancel_reason,
+            "cancelled_after_approval": req.cancelled_after_approval,
+        },
+    )
+
+
+def _expire_pending_request(db: Session, req: models.ShiftRequest, actor_id: str | None = None) -> bool:
+    if req.status != models.RequestStatus.PENDING or not _is_past_target(req.target_date):
+        return False
+    req.status = models.RequestStatus.CANCELLED
+    req.cancel_reason = "EXPIRED"
+    req.cancelled_after_approval = False
+    req.decided_at = datetime.now(timezone.utc)
+    req.operator_id = None
+    _record_request_cancel_log(db, req, actor_id)
+    return True
+
+
+def _expire_pending_requests(db: Session, actor_id: str | None = None, user_id: str | None = None) -> int:
+    query = db.query(models.ShiftRequest).filter(
+        models.ShiftRequest.status == models.RequestStatus.PENDING,
+        models.ShiftRequest.target_date < _today_seoul(),
+    )
+    if user_id:
+        query = query.filter(models.ShiftRequest.user_id == user_id)
+    count = 0
+    for req in query.all():
+        if _expire_pending_request(db, req, actor_id):
+            count += 1
+    if count:
+        db.commit()
+    return count
 
 
 def _time_window_from_range(start_hour: int | None, end_hour: int | None):
@@ -62,6 +119,8 @@ def submit_request(payload: schemas.RequestCreate, current=Depends(require_role(
         raise HTTPException(status_code=403, detail="운영자는 마스터 대신 신청할 수 없습니다")
     if current.role == models.UserRole.MEMBER and target_user_id != current.id:
         raise HTTPException(status_code=403, detail="구성원은 본인 계정으로만 신청할 수 있습니다")
+    if _is_past_target(payload.target_date):
+        raise HTTPException(status_code=400, detail=PAST_REQUEST_CREATE_MESSAGE)
 
     shift_ids = payload.target_shift_ids or ([payload.target_shift_id] if payload.target_shift_id else [])
     ranges = payload.target_ranges or []
@@ -144,6 +203,7 @@ def my_requests(
     target_user = db.query(models.User).filter(models.User.id == target_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="신청 대상 사용자를 찾을 수 없습니다")
+    _expire_pending_requests(db, user_id=target_id)
     return (
         db.query(models.ShiftRequest)
         .filter(models.ShiftRequest.user_id == target_id)
@@ -154,6 +214,7 @@ def my_requests(
 
 @router.get("/pending", response_model=list[schemas.RequestOut])
 def pending_requests(db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
+    _expire_pending_requests(db, actor_id=str(current.id))
     return (
         db.query(models.ShiftRequest)
         .filter(
@@ -197,6 +258,7 @@ def _request_feed_entry(req: models.ShiftRequest, *, action_type: str, created_a
 
 @router.get("/feed", response_model=list[schemas.RequestFeedEntry])
 def request_feed(db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
+    _expire_pending_requests(db, actor_id=str(current.id))
     logs = (
         db.query(models.AuditLog)
         .filter(models.AuditLog.action_type.in_(
@@ -256,6 +318,12 @@ def cancel_request(request_id: str, db: Session = Depends(get_db), current=Depen
         raise HTTPException(status_code=403, detail="본인 신청만 취소할 수 있습니다")
     if req.status not in (models.RequestStatus.PENDING, models.RequestStatus.APPROVED):
         raise HTTPException(status_code=400, detail="대기 또는 승인된 건만 취소할 수 있습니다")
+    if req.status == models.RequestStatus.PENDING and _expire_pending_request(db, req, str(current.id)):
+        db.commit()
+        db.refresh(req)
+        return req
+    if req.status == models.RequestStatus.APPROVED and _is_past_target(req.target_date):
+        raise HTTPException(status_code=400, detail=PAST_APPROVED_CANCEL_MESSAGE)
 
     was_approved = req.status == models.RequestStatus.APPROVED
     req.status = models.RequestStatus.CANCELLED
@@ -266,14 +334,7 @@ def cancel_request(request_id: str, db: Session = Depends(get_db), current=Depen
     req.operator_id = current.id
     db.commit()
     db.refresh(req)
-    record_log(
-        db,
-        actor_id=str(current.id),
-        action="REQUEST_CANCEL",
-        target_user_id=str(req.user_id),
-        request_id=str(req.id),
-        details={"type": req.type.value, "cancel_reason": req.cancel_reason, "cancelled_after_approval": req.cancelled_after_approval},
-    )
+    _record_request_cancel_log(db, req, str(current.id))
     db.commit()
     return req
 
@@ -287,6 +348,9 @@ def approve_request(request_id: str, db: Session = Depends(get_db), current=Depe
         raise HTTPException(status_code=400, detail="취소된 신청은 승인할 수 없습니다")
     if req.status == models.RequestStatus.APPROVED:
         raise HTTPException(status_code=400, detail="이미 승인된 신청입니다")
+    if req.status == models.RequestStatus.PENDING and _expire_pending_request(db, req, str(current.id)):
+        db.commit()
+        raise HTTPException(status_code=400, detail=PAST_DECISION_MESSAGE)
     req.status = models.RequestStatus.APPROVED
     req.operator_id = current.id
     req.decided_at = datetime.now(timezone.utc)
@@ -311,6 +375,9 @@ def reject_request(request_id: str, db: Session = Depends(get_db), current=Depen
         raise HTTPException(status_code=404, detail="신청 건을 찾을 수 없습니다")
     if req.status in (models.RequestStatus.CANCELLED, models.RequestStatus.REJECTED):
         raise HTTPException(status_code=400, detail="이미 처리된 신청입니다")
+    if req.status == models.RequestStatus.PENDING and _expire_pending_request(db, req, str(current.id)):
+        db.commit()
+        raise HTTPException(status_code=400, detail=PAST_DECISION_MESSAGE)
     req.status = models.RequestStatus.REJECTED
     req.cancel_reason = "REJECTED"
     req.operator_id = current.id

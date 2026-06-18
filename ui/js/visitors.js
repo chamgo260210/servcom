@@ -16,6 +16,7 @@ const periodFields = [
   { type: 'WINTER_BREAK', start: 'period-winter-start', end: 'period-winter-end' }
 ];
 
+const SEOUL_TIME_ZONE = 'Asia/Seoul';
 let currentYear = null;
 let entries = [];
 let entriesByDate = new Map();
@@ -42,6 +43,14 @@ function parseNumberInput(value) {
 
 function parseDateInput(value) {
   if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -59,6 +68,21 @@ function formatMonthKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+}
+
+function getTodaySeoulKey() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: SEOUL_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function getTodaySeoulDate() {
+  return parseDateInput(getTodaySeoulKey());
 }
 
 function setFormMessage(elementId, message) {
@@ -120,7 +144,7 @@ function resetEntryForm() {
   if (prevTotal) prevTotal.value = '';
   const deleteBtn = getElement('delete-entry');
   const todayKey = resolveDefaultVisitDate();
-  const todayMonthKey = todayKey ? formatMonthKey(new Date(todayKey)) : '';
+  const todayMonthKey = todayKey ? formatMonthKey(parseDateInput(todayKey)) : '';
   let todayEntry = todayKey ? entriesByDate.get(todayKey) : null;
   if (!todayEntry && todayMonthKey && entriesByMonth.has(todayMonthKey)) {
     todayEntry = entriesByMonth.get(todayMonthKey).find((item) => item.visit_date === todayKey);
@@ -141,12 +165,12 @@ function resetBulkEntryForm() {
   selectedEntryId = null;
   const visitDate = getElement('bulk-visit-date');
   if (visitDate) {
-    const today = new Date();
+    const today = getTodaySeoulDate();
     const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
     let defaultDate = yesterday;
     if (currentYear) {
-      const yearStart = new Date(currentYear.start_date);
-      const yearEnd = new Date(currentYear.end_date);
+      const yearStart = parseDateInput(currentYear.start_date);
+      const yearEnd = parseDateInput(currentYear.end_date);
       if (defaultDate < yearStart) defaultDate = yearStart;
       if (defaultDate > yearEnd) defaultDate = yearEnd;
     }
@@ -168,7 +192,7 @@ function resolveBulkMonthCursor() {
     const [year, month] = monthInput.split('-').map(Number);
     if (year && month) return new Date(year, month - 1, 1);
   }
-  return new Date(resolveDefaultVisitDate());
+  return parseDateInput(resolveDefaultVisitDate());
 }
 
 function renderBulkMonthTable() {
@@ -189,7 +213,7 @@ function renderBulkMonthTable() {
   const start = startDate < yearStart ? new Date(yearStart) : startDate;
   const end = endDate > yearEnd ? new Date(yearEnd) : endDate;
   const current = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const todayKey = formatDateKey(new Date());
+  const todayKey = getTodaySeoulKey();
   while (current <= end) {
     const dayOfWeek = current.getDay();
     if (dayOfWeek === 0 || dayOfWeek === 6) {
@@ -216,7 +240,7 @@ function renderBulkMonthTable() {
 function updateResetControls() {
   const monthInput = getElement('reset-month');
   if (!monthInput) return;
-  const today = new Date();
+  const today = getTodaySeoulDate();
   monthInput.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 }
 
@@ -283,7 +307,7 @@ async function renderEntries() {
     return;
   }
   const filtered = entries.filter((entry) => {
-    const entryDate = new Date(entry.visit_date);
+    const entryDate = parseDateInput(entry.visit_date);
     return entryDate.getFullYear() === cursor.getFullYear() && entryDate.getMonth() === cursor.getMonth();
   });
   if (status) status.textContent = `${formatMonthLabel(cursor)} · ${filtered.length}건`;
@@ -356,26 +380,26 @@ function updateSummary(summary) {
 
 function isDateWithinYear(year, targetDate) {
   if (!year || !targetDate) return false;
-  const start = new Date(year.start_date);
-  const end = new Date(year.end_date);
+  const start = parseDateInput(year.start_date);
+  const end = parseDateInput(year.end_date);
   return targetDate >= start && targetDate <= end;
 }
 
 function resolveDefaultVisitDate() {
   if (!currentYear) return '';
-  const today = new Date();
+  const today = getTodaySeoulDate();
   if (isDateWithinYear(currentYear, today)) {
-    return today.toISOString().slice(0, 10);
+    return getTodaySeoulKey();
   }
   return '';
 }
 
 function resolveCalendarCursor() {
   if (calendarCursor) return calendarCursor;
-  const today = new Date();
+  const today = getTodaySeoulDate();
   if (currentYear) {
-    const start = new Date(currentYear.start_date);
-    const end = new Date(currentYear.end_date);
+    const start = parseDateInput(currentYear.start_date);
+    const end = parseDateInput(currentYear.end_date);
     if (today >= start && today <= end) {
       calendarCursor = new Date(today.getFullYear(), today.getMonth(), 1);
       return calendarCursor;
@@ -389,19 +413,19 @@ function resolveCalendarCursor() {
 
 function resolveEntryMonthCursor() {
   if (entryMonthCursor) return entryMonthCursor;
-  const today = new Date();
+  const today = getTodaySeoulDate();
   if (currentYear && isDateWithinYear(currentYear, today)) {
     entryMonthCursor = new Date(today.getFullYear(), today.getMonth(), 1);
     return entryMonthCursor;
   }
   if (entries.length) {
     const firstEntry = entries[0];
-    const dateObj = new Date(firstEntry.visit_date);
+    const dateObj = parseDateInput(firstEntry.visit_date);
     entryMonthCursor = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
     return entryMonthCursor;
   }
   if (currentYear) {
-    const start = new Date(currentYear.start_date);
+    const start = parseDateInput(currentYear.start_date);
     entryMonthCursor = new Date(start.getFullYear(), start.getMonth(), 1);
     return entryMonthCursor;
   }
@@ -418,8 +442,8 @@ async function moveEntryMonth(monthOffset) {
   const cursor = resolveEntryMonthCursor();
   let next = new Date(cursor.getFullYear(), cursor.getMonth() + monthOffset, 1);
   if (currentYear) {
-    const start = new Date(currentYear.start_date);
-    const end = new Date(currentYear.end_date);
+    const start = parseDateInput(currentYear.start_date);
+    const end = parseDateInput(currentYear.end_date);
     const startMonth = new Date(start.getFullYear(), start.getMonth(), 1);
     const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
     if (next < startMonth) {
@@ -460,7 +484,7 @@ async function renderCalendar() {
   let monthTotal = 0;
   let openDays = 0;
   monthEntries.forEach((entry) => {
-    const entryDate = new Date(entry.visit_date);
+    const entryDate = parseDateInput(entry.visit_date);
     if (entryDate.getFullYear() === year && entryDate.getMonth() === month) {
       monthTotal += entry.daily_visitors;
       openDays += 1;
@@ -479,7 +503,7 @@ async function renderCalendar() {
     const dateStr = formatDateKey(new Date(year, month, day));
     const entry = entriesMap.get(dateStr);
     const author = entry?.updated_by_name || entry?.created_by_name || '-';
-    const isToday = dateStr === formatDateKey(new Date());
+    const isToday = dateStr === getTodaySeoulKey();
     cell.className = 'calendar-cell';
     if (isToday) cell.classList.add('is-today');
     cell.innerHTML = `
@@ -500,8 +524,8 @@ async function moveCalendar(monthOffset) {
   const cursor = resolveCalendarCursor();
   const next = new Date(cursor.getFullYear(), cursor.getMonth() + monthOffset, 1);
   if (currentYear) {
-    const start = new Date(currentYear.start_date);
-    const end = new Date(currentYear.end_date);
+    const start = parseDateInput(currentYear.start_date);
+    const end = parseDateInput(currentYear.end_date);
     const startMonth = new Date(start.getFullYear(), start.getMonth(), 1);
     const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
     if (next < startMonth) {
@@ -548,7 +572,7 @@ function resetPeriodDraft() {
 
 function selectEntry(entry) {
   selectedEntryId = entry.id;
-  const entryDate = new Date(entry.visit_date);
+  const entryDate = parseDateInput(entry.visit_date);
   entryMonthCursor = new Date(entryDate.getFullYear(), entryDate.getMonth(), 1);
 
   const bulkVisit = getElement('bulk-visit-date');
@@ -585,8 +609,8 @@ function updateTodayEntryCard() {
   const status = getElement('today-entry-status');
   const summary = getElement('today-entry-summary');
   if (!status || !summary) return;
-  const todayKey = formatDateKey(new Date());
-  const todayMonthKey = formatMonthKey(new Date());
+  const todayKey = getTodaySeoulKey();
+  const todayMonthKey = formatMonthKey(getTodaySeoulDate());
   let entry = entriesByDate.get(todayKey);
   if (!entry && entriesByMonth.has(todayMonthKey)) {
     entry = entriesByMonth.get(todayMonthKey).find((item) => item.visit_date === todayKey);
@@ -662,7 +686,7 @@ async function loadYearDetail(yearId) {
   updatePeriodForm();
   isPeriodDraftMode = false;
   setPeriodFormEditable(false);
-  const today = new Date();
+  const today = getTodaySeoulDate();
   if (currentYear && isDateWithinYear(currentYear, today)) {
     await ensureEntriesForMonth(today);
   }
@@ -696,7 +720,7 @@ async function loadYears(preferredAcademicYear = null) {
     const preferred = preferredAcademicYear
       ? years.find((year) => year.academic_year === preferredAcademicYear)
       : null;
-    const today = new Date();
+    const today = getTodaySeoulDate();
     const datedYear = resolveYearByDate(years, today);
     const activeYear = preferred || datedYear || years[0];
     if (select) {
@@ -789,7 +813,7 @@ function bindEvents() {
       showUserError('날짜를 선택하세요.', 'entry-message');
       return;
     }
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getTodaySeoulKey();
     if (visitDate !== today) {
       showUserError('일일 입력은 오늘 날짜만 가능합니다.', 'entry-message');
       return;
@@ -829,7 +853,7 @@ function bindEvents() {
     }
     setFormMessage('entry-message', '');
     try {
-      pendingEntryMonth = new Date(visitDate);
+      pendingEntryMonth = parseDateInput(visitDate);
       await apiRequest(`/visitors/years/${currentYear.id}/entries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -870,7 +894,7 @@ function bindEvents() {
       return;
     }
     const dailyVisitors = parseNumberInput(getElement('bulk-daily-visitors')?.value);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getTodaySeoulKey();
     if (visitDate >= today) {
       showUserError('오늘 날짜는 일일 입력에서만 가능합니다.', 'bulk-entry-message');
       return;
@@ -890,7 +914,7 @@ function bindEvents() {
     }
     setFormMessage('bulk-entry-message', '');
     try {
-      pendingEntryMonth = new Date(visitDate);
+      pendingEntryMonth = parseDateInput(visitDate);
       await apiRequest(`/visitors/years/${currentYear.id}/entries/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -930,8 +954,8 @@ function bindEvents() {
       showUserError('변경된 데이터가 없습니다.', 'bulk-entry-message');
       return;
     }
-    parsed.sort((a, b) => new Date(a.visitDate) - new Date(b.visitDate));
-    pendingEntryMonth = new Date(parsed[0].visitDate);
+    parsed.sort((a, b) => parseDateInput(a.visitDate) - parseDateInput(b.visitDate));
+    pendingEntryMonth = parseDateInput(parsed[0].visitDate);
     setFormMessage('bulk-entry-message', '');
     try {
       const payload = {
