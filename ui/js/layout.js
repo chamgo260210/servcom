@@ -168,6 +168,7 @@ if (!globalThis.__worktimeLayout) {
         { page: 'requests', href: html('request_center.html'), text: '근무 변경 신청', roles: 'MASTER,MEMBER' },
         { page: 'approvals', href: html('request_approvals.html'), text: '변경 승인함', roles: 'MASTER,OPERATOR' },
         { page: 'work-data-management', href: root('work_data_management.html'), text: '근무 데이터 관리', minRole: 'OPERATOR' },
+        { page: 'work-system-backup-management', href: root('work_system_data_management.html'), text: '근무 시스템 데이터 관리', minRole: 'MASTER' },
         { page: 'notices', href: html('notice_board.html'), text: '공지사항' },
         { page: 'notice_admin', href: html('notice_admin.html'), text: '공지 관리', minRole: 'OPERATOR' },
         { page: 'profile', href: html('member_profile.html'), text: '내 프로필' },
@@ -212,6 +213,7 @@ if (!globalThis.__worktimeLayout) {
       'serials-manage': '등록 · 수정',
       'serials-layout': '배치도 · 서가 관리',
       'serials-data-management': '연속 간행물 데이터 관리',
+      'work-system-backup-management': '근무 시스템 데이터 관리',
       'system-backup-management': '시스템 백업',
     };
     const label = pageLabels[activePage];

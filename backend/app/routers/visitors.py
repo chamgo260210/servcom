@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
@@ -10,11 +11,13 @@ from sqlalchemy.orm import Session, aliased
 
 from .. import models, schemas
 from ..deps import get_db
+from ..core.audit import record_log
 from ..core.roles import get_current_user, require_role
 
 router = APIRouter(prefix="/visitors", tags=["visitors"])
 
 
+SEOUL_TZ = ZoneInfo("Asia/Seoul")
 PERIOD_DEFAULTS = {
     models.VisitorPeriodType.SEMESTER_1: "1학기",
     models.VisitorPeriodType.SEMESTER_2: "2학기",
@@ -23,6 +26,10 @@ PERIOD_DEFAULTS = {
 }
 
 MAX_DAILY_VISITORS = 1_000_000
+
+
+def _today_seoul() -> date:
+    return datetime.now(SEOUL_TZ).date()
 
 def _default_year_dates(academic_year: int) -> tuple[date, date]:
     start_date = date(academic_year, 3, 1)
@@ -422,9 +429,15 @@ def create_year(payload: schemas.VisitorYearCreate, db: Session = Depends(get_db
                 start_date=start_value,
                 end_date=end_value,
             )
-        )
+    )
     db.add(models.VisitorRunningTotal(school_year_id=year.id))
     db.add(models.VisitorYearStat(school_year_id=year.id))
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="VISITOR_YEAR_CREATE",
+        details={"year_id": str(year.id), "academic_year": year.academic_year},
+    )
     db.commit()
     db.refresh(year)
     return year
@@ -521,6 +534,12 @@ def update_year(year_id, payload: schemas.VisitorYearUpdate, db: Session = Depen
         year.start_date = payload.start_date
     if payload.end_date is not None:
         year.end_date = payload.end_date
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="VISITOR_YEAR_UPDATE",
+        details={"year_id": str(year.id), "academic_year": year.academic_year},
+    )
     db.commit()
     db.refresh(year)
     return year
@@ -529,6 +548,12 @@ def update_year(year_id, payload: schemas.VisitorYearUpdate, db: Session = Depen
 @router.delete("/years/{year_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_year(year_id, db: Session = Depends(get_db), current_user=Depends(require_role(models.UserRole.OPERATOR))):
     year = _get_year(db, year_id)
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="VISITOR_YEAR_DELETE",
+        details={"year_id": str(year.id), "academic_year": year.academic_year},
+    )
     db.delete(year)
     db.commit()
     return None
@@ -556,7 +581,7 @@ def load_running_total(year_id, db: Session = Depends(get_db), current_user=Depe
 def upsert_entry(year_id, payload: schemas.VisitorEntryCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     year = _get_year(db, year_id)
     _ensure_within_year(year, payload.visit_date)
-    today = date.today()
+    today = _today_seoul()
     if payload.visit_date != today:
         raise HTTPException(status_code=403, detail="일일 입력은 오늘 날짜만 가능합니다.")
     _validate_daily_visitors(payload.daily_visitors)
@@ -571,6 +596,7 @@ def upsert_entry(year_id, payload: schemas.VisitorEntryCreate, db: Session = Dep
         .first()
     )
     if entry:
+        action = "VISITOR_DAILY_UPDATE"
         is_operator = current_user.role in (models.UserRole.OPERATOR, models.UserRole.MASTER)
         if not is_operator and entry.created_by != current_user.id:
             raise HTTPException(status_code=403, detail="본인이 입력한 기록만 수정할 수 있습니다.")
@@ -578,6 +604,7 @@ def upsert_entry(year_id, payload: schemas.VisitorEntryCreate, db: Session = Dep
         entry.daily_visitors = payload.daily_visitors
         entry.updated_by = current_user.id
     else:
+        action = "VISITOR_DAILY_CREATE"
         delta_visitors = payload.daily_visitors
         entry = models.VisitorDailyCount(
             school_year_id=year.id,
@@ -587,11 +614,23 @@ def upsert_entry(year_id, payload: schemas.VisitorEntryCreate, db: Session = Dep
             updated_by=current_user.id,
         )
         db.add(entry)
+        db.flush()
     running = _get_running_total(db, year)
     running.previous_total = payload.previous_total
     running.current_total = payload.previous_total
     running.running_date = today
     _apply_entry_delta(db, year, payload.visit_date, delta_visitors, 0 if entry.id else 1)
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action=action,
+        details={
+            "year_id": str(year.id),
+            "entry_id": str(entry.id) if entry.id else None,
+            "visit_date": payload.visit_date.isoformat(),
+            "daily_visitors": payload.daily_visitors,
+        },
+    )
     db.commit()
     db.refresh(entry)
     users = {u.id: u for u in db.query(models.User).all()}
@@ -635,6 +674,16 @@ def delete_entries(
     if entries:
         for entry in entries:
             _apply_entry_delta(db, year, entry.visit_date, -entry.daily_visitors, -1)
+        record_log(
+            db,
+            actor_id=str(current_user.id),
+            action="VISITOR_RESET",
+            details={
+                "year_id": str(year.id),
+                "month": month,
+                "deleted_entries": len(entries),
+            },
+        )
         for entry in entries:
             db.delete(entry)
     db.commit()
@@ -655,7 +704,7 @@ def bulk_upsert_entries(
     seen_dates: set[date] = set()
     for item in payload.entries:
         _ensure_within_year(year, item.visit_date)
-        if item.visit_date >= date.today():
+        if item.visit_date >= _today_seoul():
             raise HTTPException(status_code=400, detail="오늘 날짜는 일일 입력에서만 가능합니다.")
         _validate_daily_visitors(item.daily_visitors)
         if item.visit_date in seen_dates:
@@ -680,11 +729,13 @@ def bulk_upsert_entries(
             if entry:
                 if entry.daily_visitors == item.daily_visitors:
                     continue
+                action = "VISITOR_DAILY_UPDATE"
                 delta_visitors = item.daily_visitors - entry.daily_visitors
                 entry.daily_visitors = item.daily_visitors
                 entry.updated_by = current_user.id
                 _apply_entry_delta(db, year, item.visit_date, delta_visitors, 0)
             else:
+                action = "VISITOR_DAILY_CREATE"
                 entry = models.VisitorDailyCount(
                     school_year_id=year.id,
                     visit_date=item.visit_date,
@@ -693,7 +744,19 @@ def bulk_upsert_entries(
                     updated_by=current_user.id,
                 )
                 db.add(entry)
+                db.flush()
                 _apply_entry_delta(db, year, item.visit_date, item.daily_visitors, 1)
+            record_log(
+                db,
+                actor_id=str(current_user.id),
+                action=action,
+                details={
+                    "year_id": str(year.id),
+                    "entry_id": str(entry.id) if entry.id else None,
+                    "visit_date": item.visit_date.isoformat(),
+                    "daily_visitors": item.daily_visitors,
+                },
+            )
             updated_entries.append(entry)
         db.commit()
     except Exception as exc:
@@ -732,17 +795,28 @@ def delete_entry(year_id, entry_id, db: Session = Depends(get_db), current_user=
     if not entry:
         raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다.")
     is_operator = current_user.role in (models.UserRole.OPERATOR, models.UserRole.MASTER)
-    today = date.today()
+    today = _today_seoul()
     if not is_operator:
         if entry.created_by != current_user.id:
             raise HTTPException(status_code=403, detail="본인이 입력한 기록만 삭제할 수 있습니다.")
         if entry.visit_date != today:
             raise HTTPException(status_code=403, detail="오늘 날짜만 삭제할 수 있습니다.")
-    db.delete(entry)
     _apply_entry_delta(db, year, entry.visit_date, -entry.daily_visitors, -1)
     if entry.visit_date == today:
         running = _get_running_total(db, year)
         if running.running_date == today:
             running.current_total = None
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="VISITOR_DAILY_DELETE",
+        details={
+            "year_id": str(year.id),
+            "entry_id": str(entry.id),
+            "visit_date": entry.visit_date.isoformat(),
+            "daily_visitors": entry.daily_visitors,
+        },
+    )
+    db.delete(entry)
     db.commit()
     return None

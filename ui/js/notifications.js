@@ -84,13 +84,16 @@ function buildRequestEvents(requests, userMap, shiftMap, viewerRole) {
           created_at: req.decided_at || req.created_at
         });
       } else if (req.status === 'CANCELLED') {
-        const cancelledText = req.cancelled_after_approval
+        const expired = req.cancel_reason === 'EXPIRED';
+        const cancelledText = expired
+          ? `대기 중인 신청이 만료되었습니다: ${base}`
+          : req.cancelled_after_approval
           ? `승인된 신청을 정상적으로 취소하였습니다: ${base}`
           : `접수하신 신청을 승인 전 취소하였습니다: ${base}`;
         events.push({
           id: `${req.id}-cancelled`,
           text: cancelledText,
-          meta: reasonMeta,
+          meta: expired ? (reasonMeta || '기간 경과로 자동 취소됨') : reasonMeta,
           status: 'CANCELLED',
           created_at: req.decided_at || req.created_at
         });
@@ -120,13 +123,16 @@ function buildRequestEvents(requests, userMap, shiftMap, viewerRole) {
           created_at: req.decided_at || req.created_at
         });
       } else if (req.status === 'CANCELLED') {
-        const cancelledText = req.cancelled_after_approval
+        const expired = req.cancel_reason === 'EXPIRED';
+        const cancelledText = expired
+          ? `기간 경과로 만료 처리됨: ${applicant} - ${base}`
+          : req.cancelled_after_approval
           ? `승인 후 취소되었습니다: ${applicant} - ${base}`
           : `승인 전 취소 접수: ${applicant} - ${base}`;
         events.push({
           id: `${req.id}-cancelled`,
           text: cancelledText,
-          meta: reasonMeta,
+          meta: expired ? (reasonMeta || '기간 경과로 자동 취소됨') : reasonMeta,
           status: 'CANCELLED',
           created_at: req.decided_at || req.created_at
         });
@@ -155,7 +161,9 @@ function buildFeedEvents(entries, userMap, shiftMap) {
       text = `거부 처리됨: ${applicant} - ${base}`;
     } else if (entry.action_type === 'REQUEST_CANCEL') {
       status = 'CANCELLED';
-      text = entry.cancelled_after_approval
+      text = entry.cancel_reason === 'EXPIRED'
+        ? `기간 경과로 만료 처리됨: ${applicant} - ${base}`
+        : entry.cancelled_after_approval
         ? `승인 후 취소되었습니다: ${applicant} - ${base}`
         : `승인 전 취소 접수: ${applicant} - ${base}`;
     }
