@@ -11,13 +11,14 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..config import get_settings
 from ..core.backup_manifest import BACKUP_DOMAINS, SCHEMA_VERSION
-from .backup_service import normalize_domain
+from .backup_service import normalize_domain, validate_work_system_backup_payload
 from .restore_service import validate_backup_payload
 
 
 DOMAIN_STORAGE_DIRS = {
     "FULL": (Path("system") / "full",),
     "WORK": (Path("work") / "manual", Path("work") / "restore_points"),
+    "WORK_SYSTEM": (Path("work_system") / "manual", Path("work_system") / "restore_points"),
     "VISITORS": (Path("visitors") / "manual", Path("visitors") / "restore_points"),
     "SERIALS": (Path("serials") / "manual", Path("serials") / "restore_points"),
 }
@@ -215,7 +216,7 @@ def _mask_value(field_name: str, value, *, sensitive: bool):
 
 
 def _sample_row(table_name: str, row: dict, *, domain: str, sensitive: bool) -> dict:
-    if domain == "WORK" and table_name == "users":
+    if domain in {"WORK", "WORK_SYSTEM"} and table_name == "users":
         row = {key: row.get(key) for key in WORK_USER_PREVIEW_COLUMNS if key in row}
     sampled = {}
     for key, value in row.items():
@@ -248,14 +249,17 @@ def build_backup_preview(
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     checksum = payload.get("checksum") if isinstance(payload.get("checksum"), dict) else {}
-    validation = validate_backup_payload(
-        db,
-        payload,
-        expected_domain=domain,
-        backup_type=backup.backup_type,
-        allowed_domains=BACKUP_DOMAINS,
-        allow_sensitive_tables=True,
-    )
+    if domain == "WORK_SYSTEM":
+        validation = validate_work_system_backup_payload(payload, expected_domain=domain)
+    else:
+        validation = validate_backup_payload(
+            db,
+            payload,
+            expected_domain=domain,
+            backup_type=backup.backup_type,
+            allowed_domains=BACKUP_DOMAINS,
+            allow_sensitive_tables=True,
+        )
     errors = load_errors + validation.get("errors", [])
     warnings = list(validation.get("warnings", []))
     if sensitive:
@@ -319,14 +323,17 @@ def _item_for_file(db: Session, file_path: Path, domain: str, registered: dict[s
 
     validation = None
     if payload is not None and file_domain == domain:
-        validation = validate_backup_payload(
-            db,
-            payload,
-            expected_domain=domain,
-            backup_type="JSON",
-            allowed_domains=BACKUP_DOMAINS,
-            allow_sensitive_tables=True,
-        )
+        if domain == "WORK_SYSTEM":
+            validation = validate_work_system_backup_payload(payload, expected_domain=domain)
+        else:
+            validation = validate_backup_payload(
+                db,
+                payload,
+                expected_domain=domain,
+                backup_type="JSON",
+                allowed_domains=BACKUP_DOMAINS,
+                allow_sensitive_tables=True,
+            )
         errors.extend(validation.get("errors", []))
 
     registered_backup = registered.get(str(file_path.resolve()))
@@ -387,14 +394,17 @@ def validate_storage_backup_file(db: Session, *, domain: str, storage_key: str) 
             "warnings": [],
             "errors": load_errors,
         }
-    result = validate_backup_payload(
-        db,
-        payload,
-        expected_domain=domain,
-        backup_type="JSON",
-        allowed_domains=BACKUP_DOMAINS,
-        allow_sensitive_tables=True,
-    )
+    if domain == "WORK_SYSTEM":
+        result = validate_work_system_backup_payload(payload, expected_domain=domain)
+    else:
+        result = validate_backup_payload(
+            db,
+            payload,
+            expected_domain=domain,
+            backup_type="JSON",
+            allowed_domains=BACKUP_DOMAINS,
+            allow_sensitive_tables=True,
+        )
     result["errors"] = load_errors + result.get("errors", [])
     result["valid"] = not result["errors"]
     return result

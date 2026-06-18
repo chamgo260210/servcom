@@ -118,20 +118,73 @@ function bindAccountForm() {
 }
 
 function bindResetButtons(role) {
+  const resetCard = document.getElementById('reset-card');
+  const stack = resetCard?.querySelector('.stack');
+  const resetLabels = {
+    members: '근무 운영 초기화',
+    operators_members: '근무 시스템 초기화',
+    visitors_all: '출입 전체 초기화',
+    serials_all: '연속간행물 전체 초기화',
+    all: '시스템 전체 초기화'
+  };
+  Object.entries(resetLabels).forEach(([scope, label]) => {
+    let btn = document.querySelector(`[data-reset-scope="${scope}"]`);
+    if (!btn && stack) {
+      btn = document.createElement('button');
+      btn.className = scope === 'all' ? 'btn danger' : 'btn secondary';
+      btn.dataset.resetScope = scope;
+      stack.appendChild(btn);
+    }
+    if (btn) btn.textContent = label;
+  });
+
   const buttons = document.querySelectorAll('[data-reset-scope]');
   const allowedByRole = {
-    MASTER: ['members', 'operators_members', 'all'],
-    OPERATOR: ['members'],
+    MASTER: ['members', 'operators_members', 'visitors_all', 'serials_all', 'all'],
+    OPERATOR: ['members', 'visitors_all', 'serials_all'],
     MEMBER: []
   };
-  const resetCard = document.getElementById('reset-card');
+  const confirmMessages = {
+    members: [
+      '근무 운영 초기화를 진행하시겠습니까?',
+      '',
+      'MEMBER 계정과 근무 배정/변경 신청이 초기화됩니다.',
+      '복원은 WORK 백업을 사용하세요.'
+    ].join('\n'),
+    operators_members: [
+      '근무 시스템 초기화를 진행하시겠습니까?',
+      '',
+      'OPERATOR와 MEMBER 계정, 근무 배정/변경 신청이 초기화됩니다.',
+      '복원은 향후 WORK_SYSTEM 백업을 사용해야 합니다.',
+      '현재는 시스템 백업 외에는 운영자 계정 복원이 제한될 수 있습니다.'
+    ].join('\n'),
+    visitors_all: [
+      '출입 전체 초기화를 진행하시겠습니까?',
+      '',
+      '출입 학년도, 기간, 일별 입력, 누적/월별/기간별/연도별 통계가 초기화됩니다.',
+      '복원은 VISITORS 백업을 사용하세요.'
+    ].join('\n'),
+    serials_all: [
+      '연속간행물 전체 초기화를 진행하시겠습니까?',
+      '',
+      '연속간행물, 서가, 서가 타입, 배치도가 초기화됩니다.',
+      '복원은 SERIALS 백업을 사용하세요.'
+    ].join('\n'),
+    all: [
+      '시스템 전체 초기화를 진행하시겠습니까?',
+      '',
+      '시스템 전체 업무 데이터가 초기화됩니다.',
+      '복원은 FULL 백업을 사용하세요.',
+      'audit_logs는 삭제하지 않고 연결 정보만 정리됩니다.'
+    ].join('\n')
+  };
   buttons.forEach((btn) => {
     const scope = btn.dataset.resetScope;
     const isAllowed = allowedByRole[role]?.includes(scope);
     btn.style.display = isAllowed ? '' : 'none';
     if (!isAllowed) return;
     btn.addEventListener('click', async () => {
-      const confirmMsg = `정말로 ${btn.textContent.trim()} 작업을 진행하시겠습니까?`;
+      const confirmMsg = confirmMessages[scope] || `정말로 ${btn.textContent.trim()} 작업을 진행하시겠습니까?`;
       if (!confirm(confirmMsg)) return;
       try {
         const result = await apiRequest('/reset', {

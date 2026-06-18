@@ -16,6 +16,8 @@ from ..core.backup_manifest import (
     SUPPORTED_DOMAINS,
     VISITOR_TABLES,
     WORK_SCHEMA_VERSION,
+    WORK_SYSTEM_SCHEMA_VERSION,
+    WORK_SYSTEM_TABLES,
     WORK_TABLES,
     calculate_checksum,
     serialize_value,
@@ -46,6 +48,19 @@ TABLE_MODEL_MAP = {
 }
 
 WORK_USER_COLUMNS = {"id", "name", "identifier", "role", "active"}
+WORK_SYSTEM_USER_ROLES = {models.UserRole.OPERATOR, models.UserRole.MEMBER}
+WORK_SYSTEM_AUDIT_ACTIONS = {
+    "USER_CREATE",
+    "USER_UPDATE",
+    "USER_DELETE",
+    "CREDENTIAL_UPDATE",
+    "REQUEST_SUBMIT",
+    "REQUEST_APPROVE",
+    "REQUEST_REJECT",
+    "REQUEST_CANCEL",
+    "RESET_DATA",
+}
+WORK_SYSTEM_RESET_SCOPES = {"members", "operators_members"}
 
 
 def normalize_domain(domain: str) -> str:
@@ -61,6 +76,8 @@ def _backup_tables_for_domain(domain: str) -> list[str]:
         return FULL_TABLES
     if domain == "WORK":
         return WORK_TABLES
+    if domain == "WORK_SYSTEM":
+        return WORK_SYSTEM_TABLES
     raise ValueError("unsupported_domain")
 
 
@@ -75,6 +92,43 @@ def _row_to_dict(row, *, include_columns: set[str] | None = None) -> dict:
 
 def _collect_table_data(db: Session, table_name: str, *, domain: str) -> list[dict]:
     model = TABLE_MODEL_MAP[table_name]
+    if domain == "WORK_SYSTEM" and table_name == "users":
+        rows = (
+            db.query(models.User)
+            .filter(models.User.role.in_(WORK_SYSTEM_USER_ROLES))
+            .order_by(models.User.created_at.asc())
+            .all()
+        )
+        return [_row_to_dict(row) for row in rows]
+    if domain == "WORK_SYSTEM" and table_name == "auth_accounts":
+        rows = (
+            db.query(models.AuthAccount)
+            .join(models.User, models.User.id == models.AuthAccount.user_id)
+            .filter(models.User.role.in_(WORK_SYSTEM_USER_ROLES))
+            .order_by(models.AuthAccount.user_id.asc())
+            .all()
+        )
+        return [_row_to_dict(row) for row in rows]
+    if domain == "WORK_SYSTEM" and table_name == "audit_logs":
+        master_ids = {
+            row[0] for row in db.query(models.User.id).filter(models.User.role == models.UserRole.MASTER).all()
+        }
+        rows = (
+            db.query(models.AuditLog)
+            .filter(models.AuditLog.action_type.in_(WORK_SYSTEM_AUDIT_ACTIONS))
+            .order_by(models.AuditLog.created_at.asc())
+            .all()
+        )
+        collected = []
+        for row in rows:
+            if row.actor_user_id in master_ids or row.target_user_id in master_ids:
+                continue
+            if row.action_type == "RESET_DATA":
+                details = row.details if isinstance(row.details, dict) else {}
+                if details.get("scope") not in WORK_SYSTEM_RESET_SCOPES:
+                    continue
+            collected.append(_row_to_dict(row))
+        return collected
     if domain == "WORK" and table_name == "users":
         rows = (
             db.query(models.User)
@@ -105,6 +159,8 @@ def _storage_subdir(domain: str, kind: str) -> Path:
         return Path("system") / "full"
     if domain == "WORK":
         return Path("work") / ("restore_points" if kind == "RESTORE_POINT" else "manual")
+    if domain == "WORK_SYSTEM":
+        return Path("work_system") / ("restore_points" if kind == "RESTORE_POINT" else "manual")
     if domain == "VISITORS":
         return Path("visitors") / ("restore_points" if kind == "RESTORE_POINT" else "manual")
     if domain == "SERIALS":
@@ -125,7 +181,7 @@ def build_backup_payload(
     if domain not in BACKUP_DOMAINS:
         raise ValueError("unsupported_domain")
     created_at = created_at or datetime.now(timezone.utc)
-    schema_version = WORK_SCHEMA_VERSION if domain == "WORK" else SCHEMA_VERSION
+    schema_version = WORK_SCHEMA_VERSION if domain == "WORK" else WORK_SYSTEM_SCHEMA_VERSION if domain == "WORK_SYSTEM" else SCHEMA_VERSION
     meta = {
         "backup_type": domain,
         "schema_version": schema_version,
@@ -145,6 +201,22 @@ def build_backup_payload(
                 "includes_auth_accounts": True,
                 "includes_audit_logs": False,
                 "downloadable": False,
+            }
+        )
+    if domain == "WORK_SYSTEM":
+        meta.update(
+            {
+                "work_policy": "operator_member_accounts_v1",
+                "includes_auth_accounts": True,
+                "includes_audit_logs": True,
+                "downloadable": False,
+                "restorable": False,
+            }
+        )
+    if domain == "FULL":
+        meta.update(
+            {
+                "includes_audit_logs": True,
             }
         )
     data = {table_name: _collect_table_data(db, table_name, domain=domain) for table_name in _backup_tables_for_domain(domain)}
@@ -198,7 +270,7 @@ def create_json_backup(
         file_path=str(file_path),
         file_size=file_path.stat().st_size,
         checksum=payload["checksum"]["value"],
-        schema_version=WORK_SCHEMA_VERSION if domain == "WORK" else SCHEMA_VERSION,
+        schema_version=WORK_SCHEMA_VERSION if domain == "WORK" else WORK_SYSTEM_SCHEMA_VERSION if domain == "WORK_SYSTEM" else SCHEMA_VERSION,
         status="READY",
         description=description,
         created_by=current_user.id,
@@ -206,6 +278,153 @@ def create_json_backup(
     db.add(backup)
     db.flush()
     return backup
+
+
+def validate_work_system_backup_payload(payload: dict, *, expected_domain: str | None = None) -> dict:
+    errors: list[str] = []
+    warnings: list[str] = []
+    meta = payload.get("meta") if isinstance(payload, dict) else None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    checksum = payload.get("checksum") if isinstance(payload, dict) else None
+    if not isinstance(meta, dict):
+        errors.append("meta object is required")
+        meta = {}
+    if not isinstance(data, dict):
+        errors.append("data object is required")
+        data = {}
+    if not isinstance(checksum, dict):
+        errors.append("checksum object is required")
+        checksum = {}
+
+    domain = normalize_domain(meta.get("backup_type") or meta.get("domain") or expected_domain or "")
+    if domain != "WORK_SYSTEM":
+        errors.append("Backup DB domain does not match WORK_SYSTEM")
+    if expected_domain and normalize_domain(expected_domain) != domain:
+        errors.append("Backup DB domain does not match backup file meta")
+    if meta.get("schema_version") != WORK_SYSTEM_SCHEMA_VERSION:
+        errors.append("Unsupported schema_version")
+
+    required = set(WORK_SYSTEM_TABLES)
+    actual = set(data)
+    missing = required - actual
+    unknown = actual - required
+    if missing:
+        errors.append(f"Missing table keys: {', '.join(sorted(missing))}")
+    if unknown:
+        errors.append(f"Unknown table keys: {', '.join(sorted(unknown))}")
+    for table_name in required & actual:
+        if not isinstance(data.get(table_name), list):
+            errors.append(f"{table_name} must be a list")
+            data[table_name] = []
+
+    if isinstance(checksum, dict) and checksum.get("algorithm") != "sha256":
+        errors.append("checksum algorithm must be sha256")
+    expected_checksum = checksum.get("value") if isinstance(checksum, dict) else None
+    if expected_checksum:
+        actual_checksum = calculate_checksum(meta, data)
+        if actual_checksum != expected_checksum:
+            errors.append("checksum mismatch")
+    else:
+        errors.append("checksum value is required")
+
+    user_ids = set()
+    operator_ids = set()
+    identifiers = set()
+    login_ids = set()
+    shift_ids = {str(row.get("id")) for row in data.get("shifts", []) if isinstance(row, dict) and row.get("id")}
+    request_ids = {str(row.get("id")) for row in data.get("shift_requests", []) if isinstance(row, dict) and row.get("id")}
+
+    for index, row in enumerate(data.get("users", [])):
+        if not isinstance(row, dict):
+            errors.append(f"users[{index}] must be an object")
+            continue
+        role = row.get("role")
+        user_id = row.get("id")
+        if role not in {models.UserRole.OPERATOR.value, models.UserRole.MEMBER.value}:
+            errors.append(f"users[{index}].role must be OPERATOR or MEMBER")
+        if not user_id:
+            errors.append(f"users[{index}].id is required")
+        else:
+            user_id = str(user_id)
+            if user_id in user_ids:
+                errors.append(f"users[{index}].id is duplicated")
+            user_ids.add(user_id)
+            if role == models.UserRole.OPERATOR.value:
+                operator_ids.add(user_id)
+        identifier = row.get("identifier")
+        if identifier:
+            if identifier in identifiers:
+                errors.append(f"users[{index}].identifier is duplicated")
+            identifiers.add(identifier)
+
+    for index, row in enumerate(data.get("auth_accounts", [])):
+        if not isinstance(row, dict):
+            errors.append(f"auth_accounts[{index}] must be an object")
+            continue
+        user_id = str(row.get("user_id")) if row.get("user_id") else ""
+        login_id = row.get("login_id")
+        if user_id not in user_ids:
+            errors.append(f"auth_accounts[{index}].user_id references missing WORK_SYSTEM users")
+        if not login_id:
+            errors.append(f"auth_accounts[{index}].login_id is required")
+        elif login_id in login_ids:
+            errors.append(f"auth_accounts[{index}].login_id is duplicated")
+        else:
+            login_ids.add(login_id)
+        if not row.get("password_hash"):
+            errors.append(f"auth_accounts[{index}].password_hash is required")
+
+    for index, row in enumerate(data.get("user_shifts", [])):
+        if not isinstance(row, dict):
+            errors.append(f"user_shifts[{index}] must be an object")
+            continue
+        if str(row.get("user_id")) not in user_ids:
+            errors.append(f"user_shifts[{index}].user_id references missing WORK_SYSTEM users")
+        if str(row.get("shift_id")) not in shift_ids:
+            errors.append(f"user_shifts[{index}].shift_id references missing shifts")
+
+    for index, row in enumerate(data.get("shift_requests", [])):
+        if not isinstance(row, dict):
+            errors.append(f"shift_requests[{index}] must be an object")
+            continue
+        if str(row.get("user_id")) not in user_ids:
+            errors.append(f"shift_requests[{index}].user_id references missing WORK_SYSTEM users")
+        if row.get("operator_id") and str(row.get("operator_id")) not in operator_ids:
+            warnings.append(f"shift_requests[{index}].operator_id is outside WORK_SYSTEM operators and will be ignored on restore")
+        if str(row.get("target_shift_id")) not in shift_ids:
+            errors.append(f"shift_requests[{index}].target_shift_id references missing shifts")
+
+    for index, row in enumerate(data.get("audit_logs", [])):
+        if not isinstance(row, dict):
+            errors.append(f"audit_logs[{index}] must be an object")
+            continue
+        action_type = row.get("action_type")
+        if action_type not in WORK_SYSTEM_AUDIT_ACTIONS:
+            errors.append(f"audit_logs[{index}].action_type is not allowed for WORK_SYSTEM")
+        if action_type == "RESET_DATA":
+            details = row.get("details") if isinstance(row.get("details"), dict) else {}
+            if details.get("scope") not in WORK_SYSTEM_RESET_SCOPES:
+                errors.append(f"audit_logs[{index}].details.scope is not allowed for WORK_SYSTEM RESET_DATA")
+        if row.get("actor_user_id") and str(row.get("actor_user_id")) not in user_ids:
+            warnings.append(f"audit_logs[{index}].actor_user_id is outside WORK_SYSTEM users")
+        if row.get("target_user_id") and str(row.get("target_user_id")) not in user_ids:
+            warnings.append(f"audit_logs[{index}].target_user_id is outside WORK_SYSTEM users")
+        if row.get("request_id") and str(row.get("request_id")) not in request_ids:
+            warnings.append(f"audit_logs[{index}].request_id is outside WORK_SYSTEM shift_requests")
+
+    summary = {
+        table_name: len(rows) if isinstance(rows, list) else 0
+        for table_name, rows in data.items()
+    }
+    return {
+        "valid": not errors,
+        "domain": "WORK_SYSTEM" if domain == "WORK_SYSTEM" else None,
+        "schema_version": meta.get("schema_version"),
+        "summary": summary,
+        "warnings": warnings,
+        "errors": errors,
+        "_payload": payload if not errors else None,
+    }
 
 
 def build_sanitized_backup_payload(file_path: Path) -> dict:
