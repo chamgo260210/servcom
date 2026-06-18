@@ -17,7 +17,11 @@ from ..core.backup_manifest import BACKUP_DOMAINS, PHASE1_REJECTED_DOMAINS
 from ..config import get_settings
 from ..deps import get_db
 from ..core.roles import require_role
-from ..services.backup_service import build_sanitized_backup_payload, create_json_backup, normalize_domain
+from ..services.backup_service import (
+    build_sanitized_backup_payload,
+    create_json_backup,
+    normalize_domain,
+)
 from ..services.backup_storage_service import (
     build_backup_preview,
     list_storage_backup_files,
@@ -74,8 +78,8 @@ def _ensure_domain_access(domain: str, current_user, *, action: str = "access") 
     normalized = normalize_domain(domain)
     if normalized not in BACKUP_DOMAINS:
         raise HTTPException(status_code=400, detail="Unsupported backup domain")
-    if normalized == "FULL" and current_user.role != models.UserRole.MASTER:
-        raise HTTPException(status_code=403, detail=f"Only masters can {action} FULL backups")
+    if normalized in {"FULL", "WORK_SYSTEM"} and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail=f"Only masters can {action} {normalized} backups")
     return normalized
 
 
@@ -96,6 +100,10 @@ def _restore_details(domain: str, current_user, details: dict) -> dict:
     if normalize_domain(domain) == "FULL":
         return {**details, "actor_snapshot": _actor_snapshot(current_user)}
     return details
+
+
+def _validate_registered_backup(db: Session, backup: models.DataBackup) -> dict:
+    return validate_backup_file(db, backup)
 
 
 def _restore_point_id_from_summary(summary: dict | None) -> str | None:
@@ -299,8 +307,8 @@ def preview_backup(
 ):
     backup = _get_backup_or_404(db, backup_id)
     domain = normalize_domain(backup.domain)
-    if domain == "FULL" and current_user.role != models.UserRole.MASTER:
-        raise HTTPException(status_code=403, detail="Only masters can preview FULL backups")
+    if domain in {"FULL", "WORK_SYSTEM"} and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail=f"Only masters can preview {domain} backups")
     if sensitive and current_user.role != models.UserRole.MASTER:
         raise HTTPException(status_code=403, detail="Only masters can request sensitive preview")
     try:
@@ -342,8 +350,8 @@ def list_backups(
         requested_domain = normalize_domain(domain)
         if requested_domain not in BACKUP_DOMAINS:
             raise HTTPException(status_code=400, detail="Unsupported backup domain")
-        if requested_domain == "FULL" and current_user.role != models.UserRole.MASTER:
-            raise HTTPException(status_code=403, detail="Only masters can view FULL backups")
+        if requested_domain in {"FULL", "WORK_SYSTEM"} and current_user.role != models.UserRole.MASTER:
+            raise HTTPException(status_code=403, detail=f"Only masters can view {requested_domain} backups")
         query = query.filter(models.DataBackup.domain == requested_domain)
     if current_user.role != models.UserRole.MASTER:
         query = query.filter(models.DataBackup.domain.in_(("VISITORS", "SERIALS", "WORK")))
@@ -358,7 +366,7 @@ def create_backup(
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     domain = _reject_unsupported_domain(payload.domain)
-    if domain == "FULL" and current_user.role != models.UserRole.MASTER:
+    if domain in {"FULL", "WORK_SYSTEM"} and current_user.role != models.UserRole.MASTER:
         raise HTTPException(status_code=403, detail="Only masters can create this backup")
     try:
         backup = create_json_backup(
@@ -370,7 +378,11 @@ def create_backup(
         record_log(
             db,
             actor_id=str(current_user.id),
-            action={"FULL": "DATA_BACKUP_CREATE_FULL", "WORK": "DATA_BACKUP_CREATE_WORK"}.get(domain, "DATA_BACKUP_CREATE"),
+            action={
+                "FULL": "DATA_BACKUP_CREATE_FULL",
+                "WORK": "DATA_BACKUP_CREATE_WORK",
+                "WORK_SYSTEM": "DATA_BACKUP_CREATE_WORK_SYSTEM",
+            }.get(domain, "DATA_BACKUP_CREATE"),
             details={"backup_id": str(backup.id), "domain": backup.domain, "file_name": backup.file_name},
         )
         db.commit()
@@ -405,6 +417,10 @@ async def restore_uploaded_backup_endpoint(
     if confirm_text != "복원합니다":
         raise HTTPException(status_code=400, detail="Invalid restore confirmation text")
     payload = await _read_uploaded_json(file)
+    meta = payload.get("meta") if isinstance(payload, dict) else {}
+    upload_domain = normalize_domain(meta.get("backup_type") or meta.get("domain") or "") if isinstance(meta, dict) else ""
+    if upload_domain == "WORK_SYSTEM":
+        raise HTTPException(status_code=400, detail="WORK_SYSTEM upload restore is not supported")
     validation = validate_backup_payload(db, payload, backup_type="JSON")
     record_log(
         db,
@@ -470,7 +486,7 @@ def download_backup(
     domain = normalize_domain(backup.domain)
     if backup.kind == "RESTORE_POINT":
         raise HTTPException(status_code=403, detail="Restore points cannot be downloaded")
-    if domain in {"FULL", "WORK"}:
+    if domain in {"FULL", "WORK", "WORK_SYSTEM"}:
         raise HTTPException(status_code=403, detail="This backup domain cannot be downloaded")
     storage_root = Path(get_settings().BACKUP_STORAGE_DIR).resolve()
     file_path = Path(backup.file_path).resolve()
@@ -540,9 +556,9 @@ def validate_backup(
 ):
     backup = _get_backup_or_404(db, backup_id)
     domain = normalize_domain(backup.domain)
-    if domain == "FULL" and current_user.role != models.UserRole.MASTER:
-        raise HTTPException(status_code=403, detail="Only masters can validate FULL backups")
-    result = validate_backup_file(db, backup)
+    if domain in {"FULL", "WORK_SYSTEM"} and current_user.role != models.UserRole.MASTER:
+        raise HTTPException(status_code=403, detail=f"Only masters can validate {domain} backups")
+    result = _validate_registered_backup(db, backup)
     record_log(
         db,
         actor_id=str(current_user.id),
@@ -565,6 +581,9 @@ def restore_backup_endpoint(
     domain = normalize_domain(backup.domain)
     if domain not in BACKUP_DOMAINS or backup.backup_type != "JSON":
         raise HTTPException(status_code=400, detail="Only JSON backups can be restored")
+    if domain == "WORK_SYSTEM":
+        if current_user.role != models.UserRole.MASTER:
+            raise HTTPException(status_code=403, detail="Only masters can restore WORK_SYSTEM backups")
     if domain == "FULL" and current_user.role != models.UserRole.MASTER:
         raise HTTPException(status_code=403, detail="Only masters can restore FULL backups")
     if payload.confirm_text != "복원합니다":
@@ -742,8 +761,8 @@ def list_restore_jobs(
         requested_domain = normalize_domain(domain)
         if requested_domain not in BACKUP_DOMAINS:
             raise HTTPException(status_code=400, detail="Unsupported backup domain")
-        if requested_domain == "FULL" and current_user.role != models.UserRole.MASTER:
-            raise HTTPException(status_code=403, detail="Only masters can view FULL restore history")
+        if requested_domain in {"FULL", "WORK_SYSTEM"} and current_user.role != models.UserRole.MASTER:
+            raise HTTPException(status_code=403, detail=f"Only masters can view {requested_domain} restore history")
         query = query.filter(models.DataRestoreJob.domain == requested_domain)
     if current_user.role != models.UserRole.MASTER:
         query = query.filter(models.DataRestoreJob.domain.in_(("VISITORS", "SERIALS", "WORK")))

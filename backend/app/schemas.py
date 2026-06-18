@@ -318,6 +318,8 @@ class ResetScope(str, enum.Enum):
     MEMBERS = "members"
     OPERATORS_AND_MEMBERS = "operators_members"
     ALL = "all"
+    VISITORS_ALL = "visitors_all"
+    SERIALS_ALL = "serials_all"
 
 
 class ResetRequest(BaseModel):

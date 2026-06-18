@@ -6,18 +6,33 @@ const CONFIGS = {
   WORK: {
     activePage: 'work-data-management',
     title: '근무 데이터',
+    createLabel: 'WORK 백업 생성',
     canDownload: false,
     canUpload: false,
     canExcel: false,
+    restorable: true,
     masterOnly: false,
     restoreWarning: 'WORK 복원은 MEMBER 계정과 근무 데이터를 백업 기준으로 복원합니다. 백업에 없는 기존 MEMBER는 비활성화됩니다.',
+  },
+  WORK_SYSTEM: {
+    activePage: 'work-system-backup-management',
+    title: '근무 시스템 백업',
+    createLabel: '근무 시스템 백업 생성',
+    canDownload: false,
+    canUpload: false,
+    canExcel: false,
+    restorable: true,
+    masterOnly: true,
+    restoreWarning: '근무 시스템 복원은 OPERATOR/MEMBER 계정, 근무표, 변경 신청, 근무 관련 이력을 백업 시점 기준으로 복원합니다. MASTER 계정과 다른 도메인 데이터는 유지됩니다.',
   },
   VISITORS: {
     activePage: 'visitors-data-management',
     title: '출입 통계 데이터',
+    createLabel: 'VISITORS 백업 생성',
     canDownload: true,
     canUpload: true,
     canExcel: true,
+    restorable: true,
     excelPath: '/data/exports/visitors/excel',
     masterOnly: false,
     restoreWarning: '출입 통계 데이터가 백업 시점으로 교체됩니다.',
@@ -25,9 +40,11 @@ const CONFIGS = {
   SERIALS: {
     activePage: 'serials-data-management',
     title: '연속간행물 데이터',
+    createLabel: 'SERIALS 백업 생성',
     canDownload: true,
     canUpload: true,
     canExcel: true,
+    restorable: true,
     excelPath: '/data/exports/serials/excel',
     masterOnly: false,
     restoreWarning: '연속간행물 배치와 간행물 데이터가 백업 시점으로 교체됩니다.',
@@ -35,11 +52,13 @@ const CONFIGS = {
   FULL: {
     activePage: 'system-backup-management',
     title: '시스템 백업',
+    createLabel: 'FULL 백업 생성',
     canDownload: false,
     canUpload: false,
     canExcel: false,
+    restorable: true,
     masterOnly: true,
-    restoreWarning: '전체 시스템 데이터가 교체됩니다. 계정과 권한 정보가 바뀌어 복원 후 재로그인이 필요할 수 있습니다.',
+    restoreWarning: 'FULL 백업은 시스템 전체 데이터와 변동 이력(audit_logs)을 포함합니다. 복원 시 기존 이력은 삭제하지 않고 백업 이력을 병합합니다. 계정과 권한 정보가 바뀌어 복원 후 재로그인이 필요할 수 있습니다.',
   },
 };
 
@@ -172,7 +191,9 @@ function renderBackups(backups) {
     const downloadButton = config.canDownload
       ? `<button class="btn tiny secondary" type="button" data-download="${backup.id}">다운로드</button>`
       : '';
-    const restoreButton = `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`;
+    const restoreButton = config.restorable === false
+      ? `<button class="btn tiny muted" type="button" disabled>${domain === 'WORK_SYSTEM' ? '복원 미지원' : '복원'}</button>`
+      : `<button class="btn tiny" type="button" data-restore="${backup.id}" ${validation?.valid ? '' : 'disabled'}>복원</button>`;
     const excludeButton = currentUser?.role === 'MASTER'
       ? `<button class="btn tiny muted" type="button" data-exclude="${backup.id}">목록에서 제외</button>`
       : '';
@@ -588,6 +609,10 @@ backupList?.addEventListener('click', async (event) => {
       renderValidation(result);
       await loadBackups();
     } else if (button.dataset.restore) {
+      if (config.restorable === false) {
+        setMessage(validationResult, config.restoreWarning, true);
+        return;
+      }
       const warning = `${config.restoreWarning}\n\n복원을 진행하려면 "복원합니다"를 입력하세요.`;
       const confirmText = window.prompt(warning);
       if (confirmText !== '복원합니다') {
@@ -681,6 +706,8 @@ if (!isAllowed()) {
 }
 if (domainTitle) domainTitle.textContent = config.title;
 if (domainSubtitle) domainSubtitle.textContent = config.restoreWarning;
+const createBackupButton = document.getElementById('create-backup');
+if (createBackupButton && config.createLabel) createBackupButton.textContent = config.createLabel;
 if (uploadSection) uploadSection.style.display = config.canUpload ? '' : 'none';
 if (excelSection) excelSection.style.display = config.canExcel ? '' : 'none';
 if (yearInput) yearInput.closest('.form-row')?.classList.toggle('hidden', domain !== 'VISITORS');
