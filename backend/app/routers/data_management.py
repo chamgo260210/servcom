@@ -173,14 +173,37 @@ def _restore_point_info(db: Session, restore_job: models.DataRestoreJob) -> dict
     }
 
 
-def _restore_job_response(db: Session, job: models.DataRestoreJob, current_user) -> dict:
+def _latest_success_restore_job_id(db: Session):
+    latest_job = (
+        db.query(models.DataRestoreJob)
+        .filter(
+            models.DataRestoreJob.status == "SUCCESS",
+            models.DataRestoreJob.mode == "REPLACE",
+        )
+        .order_by(models.DataRestoreJob.finished_at.desc(), models.DataRestoreJob.started_at.desc())
+        .first()
+    )
+    return latest_job.id if latest_job else None
+
+
+def _restore_job_response(
+    db: Session,
+    job: models.DataRestoreJob,
+    current_user,
+    latest_success_restore_job_id=None,
+) -> dict:
     summary = dict(job.summary or {})
     domain = normalize_domain(job.domain)
+    if latest_success_restore_job_id is None:
+        latest_success_restore_job_id = _latest_success_restore_job_id(db)
+    is_latest_success_restore = job.id == latest_success_restore_job_id
     try:
         restore_point_backup = _get_restore_point_backup(db, job)
         restore_point_info = _restore_point_info(db, job)
         rollback_available = (
             job.status == "SUCCESS"
+            and job.mode == "REPLACE"
+            and is_latest_success_restore
             and bool(_restore_point_id_from_summary(summary))
             and not summary.get("rollback_used")
             and restore_point_backup is not None
@@ -193,6 +216,15 @@ def _restore_job_response(db: Session, job: models.DataRestoreJob, current_user)
         rollback_available = False
     summary["restore_point"] = restore_point_info
     summary["rollback_available"] = rollback_available
+    summary["is_latest_success_restore"] = is_latest_success_restore
+    if (
+        job.status == "SUCCESS"
+        and job.mode == "REPLACE"
+        and not is_latest_success_restore
+        and bool(_restore_point_id_from_summary(summary))
+        and not summary.get("rollback_used")
+    ):
+        summary["rollback_unavailable_reason"] = "RECENT_RESTORE_ONLY"
     return {
         "id": job.id,
         "backup_id": job.backup_id,
@@ -675,6 +707,8 @@ def rollback_restore_job(
     summary = dict(restore_job.summary or {})
     if restore_job.status != "SUCCESS":
         raise HTTPException(status_code=400, detail="Only successful restore jobs can be rolled back")
+    if restore_job.mode != "REPLACE" or restore_job.id != _latest_success_restore_job_id(db):
+        raise HTTPException(status_code=400, detail="Only the latest successful restore job can be rolled back")
     if summary.get("rollback_used"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Rollback was already used for this restore job")
     restore_point_backup = _get_restore_point_backup(db, restore_job)
@@ -767,7 +801,11 @@ def list_restore_jobs(
     if current_user.role != models.UserRole.MASTER:
         query = query.filter(models.DataRestoreJob.domain.in_(("VISITORS", "SERIALS", "WORK")))
     jobs = query.order_by(models.DataRestoreJob.started_at.desc()).limit(100).all()
-    return [_restore_job_response(db, job, current_user) for job in jobs]
+    latest_success_restore_job_id = _latest_success_restore_job_id(db)
+    return [
+        _restore_job_response(db, job, current_user, latest_success_restore_job_id)
+        for job in jobs
+    ]
 
 
 @router.get("/exports/visitors/excel")

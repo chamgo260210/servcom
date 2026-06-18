@@ -23,6 +23,75 @@ def _get_publication(db: Session, publication_id) -> models.SerialPublication:
     return publication
 
 
+def _normalize_issn(issn: str | None) -> str | None:
+    if issn is None:
+        return None
+    normalized = issn.strip()
+    return normalized or None
+
+
+def _ensure_unique_issn(
+    db: Session,
+    issn: str | None,
+    publication_id=None,
+) -> None:
+    if not issn:
+        return
+    query = db.query(models.SerialPublication).filter(models.SerialPublication.issn == issn)
+    if publication_id is not None:
+        query = query.filter(models.SerialPublication.id != publication_id)
+    if query.first():
+        raise HTTPException(status_code=400, detail="이미 등록된 ISSN입니다.")
+
+
+def _validate_shelf_position(
+    db: Session,
+    shelf_id,
+    shelf_row: int | None,
+    shelf_column: int | None,
+    shelf_row_end: int | None,
+    shelf_column_end: int | None,
+) -> tuple[int | None, int | None]:
+    location_values = [shelf_row, shelf_column, shelf_row_end, shelf_column_end]
+    has_location = any(value is not None for value in location_values)
+    if not shelf_id:
+        if has_location:
+            raise HTTPException(status_code=400, detail="서가 위치 시작/끝 값이 올바르지 않습니다.")
+        return shelf_row_end, shelf_column_end
+
+    shelf = (
+        db.query(models.SerialShelf)
+        .filter(models.SerialShelf.id == shelf_id)
+        .first()
+    )
+    if not shelf or not shelf.shelf_type:
+        raise HTTPException(status_code=400, detail="서가 위치 시작/끝 값이 올바르지 않습니다.")
+
+    if shelf_row is None or shelf_column is None:
+        raise HTTPException(status_code=400, detail="서가 위치 시작/끝 값이 올바르지 않습니다.")
+
+    normalized_row_end = shelf_row if shelf_row_end is None else shelf_row_end
+    normalized_column_end = shelf_column if shelf_column_end is None else shelf_column_end
+
+    if (
+        shelf_row < 1
+        or shelf_column < 1
+        or normalized_row_end < 1
+        or normalized_column_end < 1
+        or normalized_row_end < shelf_row
+        or normalized_column_end < shelf_column
+    ):
+        raise HTTPException(status_code=400, detail="서가 위치 시작/끝 값이 올바르지 않습니다.")
+
+    if (
+        normalized_row_end > shelf.shelf_type.rows
+        or normalized_column_end > shelf.shelf_type.columns
+    ):
+        raise HTTPException(status_code=400, detail="서가 위치가 서가 행/열 범위를 벗어났습니다.")
+
+    return normalized_row_end, normalized_column_end
+
+
 @router.get("", response_model=list[schemas.SerialPublicationOut])
 def list_publications(
     q: str | None = None,
@@ -62,16 +131,26 @@ def create_publication(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
+    issn = _normalize_issn(payload.issn)
+    _ensure_unique_issn(db, issn)
+    shelf_row_end, shelf_column_end = _validate_shelf_position(
+        db,
+        payload.shelf_id,
+        payload.shelf_row,
+        payload.shelf_column,
+        payload.shelf_row_end,
+        payload.shelf_column_end,
+    )
     publication = models.SerialPublication(
         title=payload.title,
-        issn=payload.issn,
+        issn=issn,
         acquisition_type=payload.acquisition_type,
         shelf_section=payload.shelf_section,
         shelf_id=payload.shelf_id,
         shelf_row=payload.shelf_row,
         shelf_column=payload.shelf_column,
-        shelf_row_end=payload.shelf_row_end,
-        shelf_column_end=payload.shelf_column_end,
+        shelf_row_end=shelf_row_end,
+        shelf_column_end=shelf_column_end,
         shelf_note=payload.shelf_note,
         remark=payload.remark,
         created_by=current_user.id,
@@ -91,10 +170,33 @@ def update_publication(
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     publication = _get_publication(db, publication_id)
+    issn = publication.issn
+    if payload.issn is not None:
+        issn = _normalize_issn(payload.issn)
+    _ensure_unique_issn(db, issn, publication.id)
+
+    next_shelf_id = publication.shelf_id if payload.shelf_id is None else payload.shelf_id
+    next_shelf_row = publication.shelf_row if payload.shelf_row is None else payload.shelf_row
+    next_shelf_column = publication.shelf_column if payload.shelf_column is None else payload.shelf_column
+    next_shelf_row_end = publication.shelf_row_end if payload.shelf_row_end is None else payload.shelf_row_end
+    next_shelf_column_end = (
+        publication.shelf_column_end
+        if payload.shelf_column_end is None
+        else payload.shelf_column_end
+    )
+    next_shelf_row_end, next_shelf_column_end = _validate_shelf_position(
+        db,
+        next_shelf_id,
+        next_shelf_row,
+        next_shelf_column,
+        next_shelf_row_end,
+        next_shelf_column_end,
+    )
+
     if payload.title is not None:
         publication.title = payload.title
     if payload.issn is not None:
-        publication.issn = payload.issn
+        publication.issn = issn
     if payload.acquisition_type is not None:
         publication.acquisition_type = payload.acquisition_type
     if payload.shelf_section is not None:
@@ -106,9 +208,13 @@ def update_publication(
     if payload.shelf_column is not None:
         publication.shelf_column = payload.shelf_column
     if payload.shelf_row_end is not None:
-        publication.shelf_row_end = payload.shelf_row_end
+        publication.shelf_row_end = next_shelf_row_end
     if payload.shelf_column_end is not None:
-        publication.shelf_column_end = payload.shelf_column_end
+        publication.shelf_column_end = next_shelf_column_end
+    if payload.shelf_row_end is None and next_shelf_row_end != publication.shelf_row_end:
+        publication.shelf_row_end = next_shelf_row_end
+    if payload.shelf_column_end is None and next_shelf_column_end != publication.shelf_column_end:
+        publication.shelf_column_end = next_shelf_column_end
     if payload.shelf_note is not None:
         publication.shelf_note = payload.shelf_note
     if payload.remark is not None:

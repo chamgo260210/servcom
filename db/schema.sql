@@ -350,6 +350,9 @@ CREATE TABLE IF NOT EXISTS serial_publications (
 
 CREATE INDEX IF NOT EXISTS idx_serial_publications_title ON serial_publications(title);
 CREATE INDEX IF NOT EXISTS idx_serial_publications_issn ON serial_publications(issn);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_serial_publications_issn_not_empty
+ON serial_publications(issn)
+WHERE issn IS NOT NULL AND issn <> '';
 CREATE INDEX IF NOT EXISTS idx_serial_publications_shelf ON serial_publications(shelf_section);
 
 CREATE TRIGGER trg_serial_publications_updated

@@ -178,6 +178,17 @@ function canRollbackJob(job) {
   return job.status === 'SUCCESS' && summary.rollback_available === true && !summary.rollback_used;
 }
 
+function rollbackCellHtml(job) {
+  const summary = job.summary || {};
+  if (canRollbackJob(job)) {
+    return `<button class="btn tiny danger" type="button" data-rollback="${job.id}">복원 전 상태로 되돌리기</button>`;
+  }
+  if (summary.rollback_unavailable_reason === 'RECENT_RESTORE_ONLY') {
+    return '<span class="muted small">최근 복원만 되돌릴 수 있습니다</span>';
+  }
+  return '-';
+}
+
 function renderBackups(backups) {
   if (!backupList) return;
   if (!backups.length) {
@@ -366,7 +377,7 @@ function renderRestoreJobs(jobs) {
       <td>${job.finished_at ? formatDateTimeSeoul(job.finished_at) : '-'}</td>
       <td>${restorePointHtml(job)}</td>
       <td>${escapeHtml(job.error_message || '-')}</td>
-      <td>${rollbackButton}</td>
+      <td>${rollbackCellHtml(job)}</td>
     `;
     restoreList.appendChild(tr);
   });
