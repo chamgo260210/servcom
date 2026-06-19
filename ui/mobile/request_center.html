@@ -135,9 +135,6 @@
     import { initRequestForm } from '../js/requests.js';
 
     const user = await initAppLayout('request-form');
-    const today = new Date().toISOString().slice(0, 10);
-    const dateInput = document.getElementById('req-date');
-    if (dateInput && !dateInput.value) dateInput.value = today;
     await initRequestForm(user);
   </script>
 </body>

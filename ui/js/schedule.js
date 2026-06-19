@@ -1,10 +1,11 @@
 // File: /ui/js/schedule.js
 import { apiRequest } from './api.js';
+import { getSeoulTodayKey } from './datetime.js';
 
 const days = ['월', '화', '수', '목', '금'];
 
 function parseDateValue(dateStr) {
-  if (!dateStr) return new Date();
+  if (!dateStr) dateStr = getSeoulTodayKey();
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, (m || 1) - 1, d || 1);
 }
@@ -67,8 +68,7 @@ function getOccurrenceOnOrBefore(assignment, referenceDate) {
 
 function pickRelevantWeekStart(assignments = []) {
   if (!assignments.length) return null;
-  const today = new Date();
-  const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayOnly = parseDateValue(getSeoulTodayKey());
   let nextOccurrence = null;
   let lastOccurrence = null;
 

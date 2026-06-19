@@ -101,9 +101,6 @@
     import { initRequestPage } from '../js/requests.js';
 
     const user = await initAppLayout('requests');
-    const today = new Date().toISOString().slice(0, 10);
-    const dateInput = document.getElementById('req-date');
-    if (dateInput && !dateInput.value) dateInput.value = today;
     await initRequestPage(user);
   </script>
 </body>

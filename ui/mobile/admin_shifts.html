@@ -138,10 +138,11 @@
   </div>
   <script type="module">
     import { initAppLayout } from '../js/layout.js';
+    import { getSeoulTodayKey } from '../js/datetime.js';
     import { assignShift, loadUserOptions, buildAssignSlotGrid, refreshAssignedSlotsForUser, bindAssignDateInputs } from '../js/admin.js';
 
     await initAppLayout('shifts');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getSeoulTodayKey();
     const fromInput = document.getElementById('assign-from');
     if (fromInput && !fromInput.value) fromInput.value = today;
     await loadUserOptions('assign-user');
