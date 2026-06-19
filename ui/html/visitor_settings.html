@@ -111,6 +111,7 @@
 
       <section class="card">
         <div class="card-title">학기/방학 기간 설정</div>
+        <p class="muted">학기/방학 기간을 수정하면 기존 일일 방문자 입력값은 유지되고, 기간별 통계만 새 기준으로 재계산됩니다.</p>
         <div class="inline-form" id="period-form">
           <div class="form-row">
             <label>1학기</label>
@@ -134,7 +135,8 @@
           </div>
           <div class="form-row form-row-action">
             <label aria-hidden="true">기간 저장</label>
-            <button class="btn" id="save-periods">기간 저장</button>
+            <button class="btn secondary" id="edit-periods" type="button">기간 수정</button>
+            <button class="btn" id="save-periods" type="button">기간 저장</button>
           </div>
         </div>
         <div class="muted">기간을 입력하면 해당 구간의 합계가 자동 계산됩니다.</div>

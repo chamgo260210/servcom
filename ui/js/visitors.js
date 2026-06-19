@@ -1043,6 +1043,16 @@ function bindEvents() {
   getElement('calendar-prev')?.addEventListener('click', () => moveCalendar(-1));
   getElement('calendar-next')?.addEventListener('click', () => moveCalendar(1));
 
+  getElement('edit-periods')?.addEventListener('click', () => {
+    if (!currentYear) {
+      showUserError('수정할 학년도를 먼저 선택하세요.', 'entry-message');
+      return;
+    }
+    isPeriodDraftMode = true;
+    setPeriodFormEditable(true);
+    setFormMessage('entry-message', '학기/방학 기간을 수정한 뒤 기간 저장을 누르세요.');
+  });
+
   getElement('save-periods')?.addEventListener('click', async () => {
     if (!currentYear) return;
     const payload = [
@@ -1078,6 +1088,7 @@ function bindEvents() {
         body: JSON.stringify(payload)
       });
       await loadYearDetail(currentYear.id);
+      setFormMessage('entry-message', '기간별 통계를 새 기준으로 재계산했습니다.');
     } catch (error) {
       showUserError(error.message || '기간 저장에 실패했습니다.', 'entry-message');
     }
