@@ -496,7 +496,7 @@ function showShelfTooltip(shelf, x, y, canvasEl) {
       const cols = shelfType.columns || 3;
       // 색상 배정
       const typeIndex = shelfTypes.findIndex(t => String(t.id).toLowerCase().trim() === String(shelfType.id).toLowerCase().trim());
-      const color = getShelfTypeColor(typeIndex, type);
+      const color = getShelfTypeColor(typeIndex, shelfType);
 
       html += `<div class="tooltip-shelf-grid" style="grid-template-columns: repeat(${cols}, 1fr); border-color: ${escapeHtml(color)}; background-color: ${hexToRgba(color, 0.1)};">`;
       for (let r = 1; r <= rows; r++) {
