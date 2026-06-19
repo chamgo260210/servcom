@@ -80,6 +80,17 @@ function appendActionButton(container, label, className, onClick) {
   container.appendChild(button);
 }
 
+function getFeedReopenAction(entry) {
+  if (!entry?.request_id || isBeforeTodaySeoul(entry.target_date)) return null;
+  if (entry.action_type === 'REQUEST_APPROVE' && entry.status === 'APPROVED') {
+    return { label: '승인 취소', action: 'reopen' };
+  }
+  if (entry.action_type === 'REQUEST_REJECT' && entry.status === 'REJECTED') {
+    return { label: '거절 취소', action: 'reopen' };
+  }
+  return null;
+}
+
 let shiftCache = null;
 let slotCells = new Map();
 let selectedSlots = new Set();
@@ -527,29 +538,17 @@ async function loadPendingRequests() {
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
   if (tbody) tbody.innerHTML = '';
   if (cardList) cardList.innerHTML = '';
-  data.forEach((r) => {
+  const pendingRequests = data.filter((r) => r.status === 'PENDING');
+  pendingRequests.forEach((r) => {
     const requester = userMap[r.user_id];
-    const timeLabel = requestTimeLabel(r);
     const timeText = requestTimeLabel(r);
     const baseShiftLabel = r.target_shift_id ? shiftLabel(r.target_shift_id) : '근무 정보 없음';
     const shiftText = `${baseShiftLabel}${timeText ? ` (${timeText})` : ''}`;
     const statusText = statusLabel[r.status] || r.status;
     const actions = document.createElement('div');
     actions.className = 'request-card-actions';
-    if (r.status === 'PENDING') {
-      appendActionButton(actions, '승인', 'btn secondary tiny', () => act(r.id, 'approve'));
-      appendActionButton(actions, '거절', 'btn muted tiny', () => act(r.id, 'reject'));
-    } else if (r.status === 'APPROVED' && !isBeforeTodaySeoul(r.target_date)) {
-      appendActionButton(actions, '승인 취소', 'btn muted tiny', () => act(r.id, 'reopen'));
-    } else if (r.status === 'REJECTED') {
-      appendActionButton(actions, '거절 취소', 'btn muted tiny', () => act(r.id, 'reopen'));
-    } else if (r.status === 'CANCELLED') {
-      actions.textContent = '승인된 후 취소됨';
-      actions.className = 'muted small';
-    } else {
-      actions.textContent = '-';
-      actions.className = 'muted small';
-    }
+    appendActionButton(actions, '승인', 'btn secondary tiny', () => act(r.id, 'approve'));
+    appendActionButton(actions, '거절', 'btn muted tiny', () => act(r.id, 'reject'));
     if (cardList) {
       const card = document.createElement('div');
       card.className = 'request-card';
@@ -625,6 +624,8 @@ async function renderRequestFeed() {
       shiftText,
       target: entry.target_date || '-',
       reason: entry.reason || '-',
+      requestId: entry.request_id,
+      reopenAction: getFeedReopenAction(entry),
       rowHtml: `<td>${escapeHtml(requesterName)}</td><td>${escapeHtml(typeLabel(entry.type))}</td><td>${escapeHtml(entry.target_date)}</td><td>${escapeHtml(shiftText)}</td><td>${escapeHtml(statusText)}</td><td>${escapeHtml(entry.reason || '-')}</td>`
     };
   });
@@ -644,11 +645,24 @@ async function renderRequestFeed() {
           <div class="request-card-meta">날짜: ${escapeHtml(ev.target || '-')}</div>
           <div class="request-card-meta">사유: ${escapeHtml(ev.reason || '-')}</div>
         `;
+        if (ev.reopenAction) {
+          const actions = document.createElement('div');
+          actions.className = 'request-card-actions';
+          appendActionButton(actions, ev.reopenAction.label, 'btn muted tiny', () => act(ev.requestId, ev.reopenAction.action));
+          card.appendChild(actions);
+        }
         list.appendChild(card);
         return;
       }
       const row = document.createElement('tr');
       row.innerHTML = ev.rowHtml;
+      if (ev.reopenAction) {
+        const statusCell = row.children[4];
+        const actions = document.createElement('div');
+        actions.className = 'request-card-actions';
+        appendActionButton(actions, ev.reopenAction.label, 'btn muted tiny', () => act(ev.requestId, ev.reopenAction.action));
+        statusCell?.appendChild(actions);
+      }
       const timeCell = document.createElement('td');
       timeCell.className = 'small muted';
       timeCell.textContent = formatDateTimeSeoul(ev.time);

@@ -155,6 +155,7 @@ class RequestFeedEntry(BaseModel):
     action_type: str
     created_at: datetime
     user_id: UUID
+    status: RequestStatus
     type: RequestType
     target_date: date
     target_shift_id: UUID
