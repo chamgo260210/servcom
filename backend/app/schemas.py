@@ -155,6 +155,7 @@ class RequestFeedEntry(BaseModel):
     action_type: str
     created_at: datetime
     user_id: UUID
+    status: RequestStatus
     type: RequestType
     target_date: date
     target_shift_id: UUID
@@ -315,6 +316,9 @@ class HistoryEntry(BaseModel):
 
 class HistoryStatsOut(BaseModel):
     total_logs: int
+    logs_after_full_reset: int
+    latest_full_reset_at: datetime | None = None
+    default_scope_label: str
     logs_last_7_days: int
     recent_30_days: int
     logs_last_90_days: int

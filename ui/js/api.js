@@ -4,6 +4,7 @@ const API_BASE_URL = (() => {
   if (configured) return configured.replace(/\/$/, '');
   return '/api';
 })();
+const SESSION_EXPIRED_MESSAGE = '세션이 만료되었거나 다른 위치에서 로그인되어 다시 로그인이 필요합니다.';
 
 function parseTokenExp(token) {
   if (!token) return null;
@@ -34,8 +35,9 @@ function buildLoginUrl() {
   return `${window.location.origin}${normalized}index.html`;
 }
 
-function redirectToLogin() {
+function redirectToLogin(reason = '') {
   clearToken();
+  if (reason) sessionStorage.setItem('auth_logout_reason', reason);
   window.location.replace(buildLoginUrl());
 }
 
@@ -71,7 +73,7 @@ async function apiRequest(path, options = {}) {
       token = await refreshToken();
     } catch (e) {
       clearToken();
-      redirectToLogin();
+      redirectToLogin(SESSION_EXPIRED_MESSAGE);
       return;
     }
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -94,7 +96,7 @@ async function apiRequest(path, options = {}) {
     }
   }
   if (resp.status === 401) {
-    redirectToLogin();
+    redirectToLogin(SESSION_EXPIRED_MESSAGE);
     return;
   }
   if (!resp.ok) {

@@ -5,9 +5,20 @@ let countdownInterval;
 const PASSWORD_RULE = /^(?=.*[0-9])(?=.*[!@#$%^&*()_\-+=\[{\]}|;:'",.<>/?`~]).{8,}$/;
 const PASSWORD_FLAG_KEY = 'needs_password_update';
 const PASSWORD_SNOOZE_KEY = 'password_update_snooze_until';
+const AUTH_LOGOUT_REASON_KEY = 'auth_logout_reason';
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function showAuthLogoutReason() {
+  const message = sessionStorage.getItem(AUTH_LOGOUT_REASON_KEY);
+  if (!message) return;
+  sessionStorage.removeItem(AUTH_LOGOUT_REASON_KEY);
+  const el = document.getElementById('auth-message');
+  if (!el) return;
+  el.textContent = message;
+  el.style.display = 'block';
 }
 
 function buildDashboardUrl() {
@@ -174,6 +185,7 @@ export {
   login,
   loadUser,
   logout,
+  showAuthLogoutReason,
   startSessionCountdown,
   setupPasswordToggle,
   refreshSession,

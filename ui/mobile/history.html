@@ -114,6 +114,9 @@
           <div class="history-summary-group">
             <div class="muted small">저장 현황</div>
             <div id="history-stat-total">전체 로그: -</div>
+            <div id="history-stat-latest-reset">최근 전체 초기화: -</div>
+            <div id="history-stat-after-reset">초기화 이후 로그: -</div>
+            <div id="history-stat-default-scope">기본 조회 범위: -</div>
             <div id="history-stat-last-7">최근 7일: -</div>
             <div id="history-stat-recent">최근 30일: -</div>
             <div id="history-stat-last-90">최근 90일: -</div>
@@ -140,6 +143,7 @@
           </div>
         </div>
         <div id="history-stats-status" class="muted small">통계를 불러오는 중...</div>
+        <div class="muted small">기본 조회는 최근 시스템 전체 초기화 이후 이력만 표시합니다. 초기화 이전 이력은 아래 옵션을 선택하면 볼 수 있으며, 전체 저장 로그 수와 현재 표시 건수는 다를 수 있습니다.</div>
         <div class="toolbar compact">
           <label>기간
             <select id="history-days">
@@ -158,6 +162,10 @@
           </label>
           <label>이력 유형
             <select id="history-action-type"><option value="">전체 이력 유형</option></select>
+          </label>
+          <label>
+            <input id="history-include-before-reset" type="checkbox" />
+            초기화 이전 이력 포함
           </label>
           <button class="btn tiny" id="history-refresh" type="button">조회</button>
         </div>

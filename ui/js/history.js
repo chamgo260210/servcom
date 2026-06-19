@@ -31,21 +31,24 @@ function currentFilters() {
   const days = document.getElementById('history-days')?.value || DEFAULT_DAYS;
   const limit = document.getElementById('history-limit')?.value || DEFAULT_LIMIT;
   const actionType = document.getElementById('history-action-type')?.value || '';
-  return { days, limit, actionType };
+  const includeBeforeReset = Boolean(document.getElementById('history-include-before-reset')?.checked);
+  return { days, limit, actionType, includeBeforeReset };
 }
 
 function buildHistoryPath() {
-  const { days, limit, actionType } = currentFilters();
+  const { days, limit, actionType, includeBeforeReset } = currentFilters();
   const params = new URLSearchParams({ days, limit });
   if (actionType) params.set('action_type', actionType);
+  if (includeBeforeReset) params.set('include_before_reset', 'true');
   return `/history?${params.toString()}`;
 }
 
 function buildExportPath(format) {
-  const { days, actionType } = currentFilters();
+  const { days, actionType, includeBeforeReset } = currentFilters();
   const exportLimit = document.getElementById('history-export-limit')?.value || DEFAULT_EXPORT_LIMIT;
   const params = new URLSearchParams({ days, limit: exportLimit, format });
   if (actionType) params.set('action_type', actionType);
+  if (includeBeforeReset) params.set('include_before_reset', 'true');
   return `/history/export?${params.toString()}`;
 }
 
@@ -105,6 +108,17 @@ async function exportHistory(format) {
 function renderStats(stats) {
   latestHistoryStats = stats;
   setStatText('history-stat-total', '전체 로그', `${formatCount(stats.total_logs)}건`);
+  setStatText(
+    'history-stat-latest-reset',
+    '최근 전체 초기화',
+    stats.latest_full_reset_at ? formatOptionalDate(stats.latest_full_reset_at) : '없음',
+  );
+  setStatText(
+    'history-stat-after-reset',
+    '초기화 이후 로그',
+    stats.latest_full_reset_at ? `${formatCount(stats.logs_after_full_reset)}건` : '전체 기준',
+  );
+  setStatText('history-stat-default-scope', '기본 조회 범위', stats.default_scope_label || '전체 기준');
   setStatText('history-stat-last-7', '최근 7일', `${formatCount(stats.logs_last_7_days)}건`);
   setStatText('history-stat-recent', '최근 30일', `${formatCount(stats.recent_30_days)}건`);
   setStatText('history-stat-last-90', '최근 90일', `${formatCount(stats.logs_last_90_days)}건`);
@@ -153,7 +167,7 @@ async function loadHistoryStats() {
   try {
     const stats = await apiRequest('/history/stats');
     renderStats(stats);
-    if (status) status.textContent = '통계 기준: 전체 audit_logs';
+    if (status) status.textContent = `통계 기준: 전체 audit_logs / 기본 조회: ${stats.default_scope_label || '전체 기준'}`;
   } catch (e) {
     if (status) status.textContent = `통계를 불러오지 못했습니다. ${e.message || e}`;
   }
@@ -181,7 +195,7 @@ async function loadHistory(currentUser) {
   const tbody = document.querySelector('#history-table tbody');
   const status = document.getElementById('history-status');
   const list = document.getElementById('history-list');
-  const { days, limit, actionType } = currentFilters();
+  const { days, limit, actionType, includeBeforeReset } = currentFilters();
   if (status) status.textContent = '이력을 불러오는 중...';
   if (!tbody && !list) return;
   if (tbody) tbody.replaceChildren();
@@ -228,9 +242,14 @@ async function loadHistory(currentUser) {
     });
     const dayLabel = days === 'all' ? '전체 기간' : `최근 ${days}일`;
     const actionLabel = actionType ? ` / ${actionType}` : '';
+    const scopeLabel = includeBeforeReset
+      ? '초기화 이전 포함'
+      : latestHistoryStats?.default_scope_label || '기본 범위';
     if (status) {
-      const totalText = latestHistoryStats ? ` / 실제 저장 로그는 ${formatCount(latestHistoryStats.total_logs)}건` : '';
-      status.textContent = `현재 조건 결과: ${formatCount(logs.length)}건 표시 중 / ${dayLabel}${actionLabel} / 현재 조회 조건으로는 최대 ${limit}건까지만 표시${totalText}`;
+      const totalText = latestHistoryStats
+        ? ` / 전체 저장 로그 ${formatCount(latestHistoryStats.total_logs)}건`
+        : '';
+      status.textContent = `현재 조건 결과: ${formatCount(logs.length)}건 표시 중 / ${scopeLabel} / ${dayLabel}${actionLabel} / 최대 ${limit}건 표시${totalText}`;
     }
   } catch (e) {
     if (status) status.textContent = `이력을 불러오지 못했습니다. ${e.message || e}`;
@@ -238,7 +257,7 @@ async function loadHistory(currentUser) {
 }
 
 function bindHistoryControls(currentUser) {
-  ['history-days', 'history-limit', 'history-action-type'].forEach((id) => {
+  ['history-days', 'history-limit', 'history-action-type', 'history-include-before-reset'].forEach((id) => {
     document.getElementById(id)?.addEventListener('change', () => loadHistory(currentUser));
   });
   document.getElementById('history-refresh')?.addEventListener('click', () => loadHistory(currentUser));

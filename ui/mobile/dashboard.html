@@ -127,6 +127,7 @@
   </div>
   <script type="module">
     import { apiRequest } from '../js/api.js';
+    import { getSeoulTodayKey, parseDateKeyLocal, formatDateKeyLocal } from '../js/datetime.js';
     import { initAppLayout } from '../js/layout.js';
     import { loadGlobalSchedule, renderCompactSchedule } from '../js/schedule.js';
 
@@ -145,14 +146,14 @@
 
     if (user?.role === 'MEMBER' && todayCard) {
       try {
-        const today = new Date();
+        const todayStr = getSeoulTodayKey();
+        const today = parseDateKeyLocal(todayStr);
         const dayOffset = (today.getDay() + 6) % 7;
         const weekStart = new Date(today);
         weekStart.setDate(today.getDate() - dayOffset);
-        const params = new URLSearchParams({ start: weekStart.toISOString().slice(0, 10) });
+        const params = new URLSearchParams({ start: formatDateKeyLocal(weekStart) });
         if (user?.id) params.set('user_id', user.id);
         const events = await apiRequest(`/schedule/weekly_view?${params.toString()}`);
-        const todayStr = today.toISOString().slice(0, 10);
         const todays = events.filter((ev) => ev.date === todayStr);
         const todayInfo = document.getElementById('today-info');
         if (!todays.length) {
@@ -193,7 +194,7 @@
         return;
       }
       const pendingCount = items.filter((r) => r.status === 'PENDING').length;
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getSeoulTodayKey();
       const todayPending = items.filter((r) => r.status === 'PENDING' && r.target_date === today).length;
       const approved = items.filter((r) => r.status === 'APPROVED').length;
       const cancelled = items.filter((r) => r.status === 'CANCELLED').length;

@@ -233,15 +233,7 @@ def pending_requests(db: Session = Depends(get_db), current=Depends(require_role
     _expire_pending_requests(db, actor_id=str(current.id))
     return (
         db.query(models.ShiftRequest)
-        .filter(
-            (models.ShiftRequest.status == models.RequestStatus.PENDING)
-            | (models.ShiftRequest.status == models.RequestStatus.APPROVED)
-            | (models.ShiftRequest.status == models.RequestStatus.REJECTED)
-            | (
-                (models.ShiftRequest.status == models.RequestStatus.CANCELLED)
-                & (models.ShiftRequest.cancelled_after_approval == True)
-            )
-        )
+        .filter(models.ShiftRequest.status == models.RequestStatus.PENDING)
         .order_by(models.ShiftRequest.created_at.desc())
         .all()
     )
@@ -269,6 +261,7 @@ def _request_feed_entry(
         action_type=action_type,
         created_at=created_at,
         user_id=req.user_id,
+        status=req.status,
         type=req.type,
         target_date=req.target_date,
         target_shift_id=req.target_shift_id,
