@@ -28,6 +28,7 @@ let entryMonthCursor = null;
 let pendingEntryMonth = null;
 let bulkMonthCursor = null;
 let isPeriodDraftMode = false;
+let periodFormMode = 'view';
 
 function formatNumber(value) {
   if (value === null || value === undefined) return '-';
@@ -552,13 +553,30 @@ function updatePeriodForm() {
   });
 }
 
-function setPeriodFormEditable(isEditable) {
+function setPeriodFormEditable(isEditable, mode = isEditable ? 'edit' : 'view') {
+  periodFormMode = mode;
   periodFields.forEach((field) => {
     const startEl = getElement(field.start);
     const endEl = getElement(field.end);
     if (startEl) startEl.disabled = !isEditable;
     if (endEl) endEl.disabled = !isEditable;
   });
+  const editButton = getElement('edit-periods');
+  const saveButton = getElement('save-periods');
+  const cancelButton = getElement('cancel-period-edit');
+  const isEditMode = periodFormMode === 'edit';
+  if (editButton) {
+    editButton.hidden = isEditable || !currentYear;
+    editButton.disabled = isEditable || !currentYear;
+  }
+  if (saveButton) {
+    saveButton.hidden = !isEditMode;
+    saveButton.disabled = !isEditMode;
+  }
+  if (cancelButton) {
+    cancelButton.hidden = !isEditMode;
+    cancelButton.disabled = !isEditMode;
+  }
 }
 
 function resetPeriodDraft() {
@@ -798,7 +816,7 @@ function bindEvents() {
         resetPeriodDraft();
       }
       isPeriodDraftMode = true;
-      setPeriodFormEditable(true);
+      setPeriodFormEditable(true, 'create');
     } else {
       isPeriodDraftMode = false;
       setPeriodFormEditable(false);
@@ -1049,8 +1067,15 @@ function bindEvents() {
       return;
     }
     isPeriodDraftMode = true;
-    setPeriodFormEditable(true);
+    setPeriodFormEditable(true, 'edit');
     setFormMessage('entry-message', '학기/방학 기간을 수정한 뒤 기간 저장을 누르세요.');
+  });
+
+  getElement('cancel-period-edit')?.addEventListener('click', () => {
+    isPeriodDraftMode = false;
+    updatePeriodForm();
+    setPeriodFormEditable(false);
+    setFormMessage('entry-message', '기간 수정을 취소했습니다.');
   });
 
   getElement('save-periods')?.addEventListener('click', async () => {
@@ -1088,7 +1113,7 @@ function bindEvents() {
         body: JSON.stringify(payload)
       });
       await loadYearDetail(currentYear.id);
-      setFormMessage('entry-message', '기간별 통계를 새 기준으로 재계산했습니다.');
+      setFormMessage('entry-message', '학기/방학 기간이 저장되었습니다. 기간별 통계를 새 기준으로 다시 계산했습니다.');
     } catch (error) {
       showUserError(error.message || '기간 저장에 실패했습니다.', 'entry-message');
     }
