@@ -149,8 +149,13 @@ function buildQuery() {
 }
 const COLOR_PALETTE = ['#3b82f6', '#22c55e', '#f59e0b', '#ec4899', '#6366f1', '#a855f7', '#14b8a6', '#ef4444'];
 
-function getShelfTypeColor(index) {
-  return COLOR_PALETTE[index >= 0 ? index % COLOR_PALETTE.length : 0];
+function getShelfTypeColor(index, shelfType = null) {
+  return shelfType?.color || COLOR_PALETTE[index >= 0 ? index % COLOR_PALETTE.length : 0];
+}
+
+function markLayoutDirty(message = '저장 버튼을 눌러 배치도 변경사항을 반영하세요.') {
+  const el = document.getElementById('canvas-status-text');
+  if (el) el.textContent = message;
 }
 
 // Hex 색상에 투명도 적용
@@ -358,7 +363,7 @@ function renderLayoutLegend() {
   const legend = document.getElementById('layout-legend');
   if (!legend) return;
   legend.innerHTML = shelfTypes.map((t, idx) => {
-    const color = getShelfTypeColor(idx);
+    const color = getShelfTypeColor(idx, t);
     return `<div class="legend-item"><span class="legend-swatch" style="background:${escapeHtml(color)}"></span>${escapeHtml(t.name)}</div>`;
   }).join('');
 }
@@ -390,7 +395,7 @@ function renderShelfVisual(serial) {
 
   // 색상 배정
   const typeIndex = shelfTypes.findIndex(t => String(t.id).toLowerCase().trim() === String(shelfType.id).toLowerCase().trim());
-  const color = getShelfTypeColor(typeIndex);
+  const color = getShelfTypeColor(typeIndex, shelfType);
 
   // 시작/종료 위치 (기본값: 동일한 셀)
   const startRow = serial.shelf_row || 0;
@@ -491,7 +496,7 @@ function showShelfTooltip(shelf, x, y, canvasEl) {
       const cols = shelfType.columns || 3;
       // 색상 배정
       const typeIndex = shelfTypes.findIndex(t => String(t.id).toLowerCase().trim() === String(shelfType.id).toLowerCase().trim());
-      const color = getShelfTypeColor(typeIndex);
+      const color = getShelfTypeColor(typeIndex, shelfType);
 
       html += `<div class="tooltip-shelf-grid" style="grid-template-columns: repeat(${cols}, 1fr); border-color: ${escapeHtml(color)}; background-color: ${hexToRgba(color, 0.1)};">`;
       for (let r = 1; r <= rows; r++) {
@@ -654,7 +659,7 @@ async function renderCanvas() {
     const shelfHeight = 2 * UNIT_SIZE; // Fixed height: 2 grid units
 
     // 서가 타입별 자동 색상 배정 (타입 순서에 따라 팔레트에서 선택)
-    const color = getShelfTypeColor(typeIndex);
+    const color = getShelfTypeColor(typeIndex, shelfType);
     const borderColor = color;
     const fillColor = color; // Solid color to match legend
     const textColor = '#ffffff'; // White text on solid background
@@ -1023,6 +1028,7 @@ function bindCanvasEvents(editorMode) {
       if (Math.abs(x1 - x2) > 0 || Math.abs(y1 - y2) > 0) {
         currentLayout.walls = currentLayout.walls || [];
         currentLayout.walls.push({ x1, y1, x2, y2 });
+        markLayoutDirty();
       }
       activeLine = null;
       isDrawing = false;
@@ -1116,6 +1122,8 @@ async function selectLayout(layoutId, editorMode) {
   if (!layout) return;
 
   currentLayout = layout;
+  const status = document.getElementById('canvas-status-text');
+  if (status) status.textContent = '벽 변경은 저장 버튼을 눌러 반영됩니다.';
 
   if (shelfTypes.length === 0) {
     await loadShelfTypes();
@@ -1176,18 +1184,24 @@ async function updateCurrentLayout() {
   if (!currentLayout) return;
   const payload = { name: currentLayout.name, note: currentLayout.note, walls: currentLayout.walls };
   await apiRequest(`/serials/layouts/${currentLayout.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const status = document.getElementById('canvas-status-text');
+  if (status) status.textContent = '저장됨';
   alert('배치도가 저장되었습니다.');
 }
 
 async function deleteCurrentLayout() {
-  if (!currentLayout || !confirm(`'${currentLayout.name}' 삭제하시겠습니까?`)) return;
-  await apiRequest(`/serials/layouts/${currentLayout.id}`, { method: 'DELETE' });
-  currentLayout = null;
-  await loadLayouts();
-  renderLayoutSelect();
+  if (!currentLayout || !confirm(`'${currentLayout.name}' 삭제하시겠습니까? 배치된 서가가 있으면 삭제할 수 없습니다.`)) return;
+  try {
+    await apiRequest(`/serials/layouts/${currentLayout.id}`, { method: 'DELETE' });
+    currentLayout = null;
+    await loadLayouts();
+    renderLayoutSelect();
 
-  if (layouts.length > 0) selectLayout(layouts[0].id, true);
-  else showEmptyState();
+    if (layouts.length > 0) selectLayout(layouts[0].id, true);
+    else showEmptyState();
+  } catch (err) {
+    alert(err.message || '배치도를 삭제할 수 없습니다.');
+  }
 }
 
 
@@ -1290,7 +1304,7 @@ function renderShelfTypeList() {
   if (!list) return;
 
   list.innerHTML = shelfTypes.map((t, idx) => {
-    const color = getShelfTypeColor(idx);
+    const color = getShelfTypeColor(idx, t);
     return `
       <div class="list-item shelf-type-item" data-id="${escapeHtml(t.id)}">
         <span class="shelf-type-color" style="background:${escapeHtml(color)}"></span>
@@ -1332,28 +1346,17 @@ function renderShelfTypeList() {
       e.stopPropagation();
       const typeId = btn.dataset.id;
 
-      // Cascade delete: find and delete all shelves of this type
-      const shelvesToDelete = shelves.filter(s => s.shelf_type_id === typeId);
+      if (!confirm('이 서가 타입을 삭제하시겠습니까? 사용 중인 서가 타입은 삭제할 수 없습니다.')) return;
 
-      if (shelvesToDelete.length > 0) {
-        if (!confirm(`이 서가 타입을 삭제하면 배치된 서가 ${shelvesToDelete.length}개도 함께 삭제됩니다. 계속하시겠습니까?`)) {
-          return;
-        }
-
-        // Delete all shelves of this type
-        for (const shelf of shelvesToDelete) {
-          await apiRequest(`/serials/shelves/${shelf.id}`, { method: 'DELETE' });
-        }
-        shelves = shelves.filter(s => s.shelf_type_id !== typeId);
-      } else {
-        if (!confirm('삭제하시겠습니까?')) return;
+      try {
+        await apiRequest(`/serials/shelf-types/${typeId}`, { method: 'DELETE' });
+        await loadShelfTypes();
+        renderShelfPalette();
+        renderShelfTypeList();
+        renderCanvas();
+      } catch (err) {
+        alert(err.message || '서가 타입을 삭제할 수 없습니다.');
       }
-
-      await apiRequest(`/serials/shelf-types/${typeId}`, { method: 'DELETE' });
-      await loadShelfTypes();
-      renderShelfPalette();
-      renderShelfTypeList();
-      renderCanvas();
     });
   });
 }
@@ -1389,13 +1392,19 @@ function renderPropertiesPanel() {
       const wallIndices = selectedElement.items.filter(i => i.type === 'wall').map(i => i.index).sort((a, b) => b - a);
       const shelfIds = selectedElement.items.filter(i => i.type === 'shelf').map(i => i.id);
 
-      for (const sid of shelfIds) {
-        await apiRequest(`/serials/shelves/${sid}`, { method: 'DELETE' });
+      try {
+        for (const sid of shelfIds) {
+          await apiRequest(`/serials/shelves/${sid}`, { method: 'DELETE' });
+        }
+      } catch (err) {
+        alert(err.message || '선택한 서가를 삭제할 수 없습니다.');
+        return;
       }
 
       wallIndices.forEach(idx => {
         currentLayout.walls.splice(idx, 1);
       });
+      if (wallIndices.length) markLayoutDirty();
 
       shelves = shelves.filter(s => !shelfIds.includes(s.id));
       selectedElement = null;
@@ -1432,9 +1441,13 @@ function renderPropertiesPanel() {
     });
     document.getElementById('prop-delete')?.addEventListener('click', async () => {
       if (confirm('삭제?')) {
-        await apiRequest(`/serials/shelves/${shelf.id}`, { method: 'DELETE' });
-        shelves = shelves.filter(s => s.id !== shelf.id);
-        selectElement(null);
+        try {
+          await apiRequest(`/serials/shelves/${shelf.id}`, { method: 'DELETE' });
+          shelves = shelves.filter(s => s.id !== shelf.id);
+          selectElement(null);
+        } catch (err) {
+          alert(err.message || '서가를 삭제할 수 없습니다.');
+        }
       }
     });
   } else if (selectedElement.type === 'wall') {
@@ -1442,6 +1455,7 @@ function renderPropertiesPanel() {
     panel.innerHTML = `<div class="stack tight"><button class="btn danger small" id="prop-wall-delete">벽 삭제</button></div>`;
     document.getElementById('prop-wall-delete')?.addEventListener('click', () => {
       currentLayout.walls.splice(idx, 1);
+      markLayoutDirty();
       selectElement(null);
     });
   }
@@ -1539,7 +1553,7 @@ function renderShelfPalette() {
     el.className = 'palette-item';
 
     // 서가 타입 색상 적용
-    const color = getShelfTypeColor(idx);
+    const color = getShelfTypeColor(idx, t);
     const borderColor = color;
     const bgColor = color; // Solid color
 

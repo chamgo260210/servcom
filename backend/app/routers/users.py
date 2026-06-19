@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from .. import schemas, models
 from ..deps import get_db
 from ..core.roles import require_role
-from ..core.security import get_password_hash
+from ..core import security
 from ..core.audit import record_log
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -64,7 +64,7 @@ def create_user(payload: schemas.UserCreate, db: Session = Depends(get_db), curr
     user = models.User(name=payload.name, identifier=payload.identifier, role=payload.role)
     db.add(user)
     db.flush()
-    auth = models.AuthAccount(user_id=user.id, login_id=payload.login_id, password_hash=get_password_hash(payload.password))
+    auth = models.AuthAccount(user_id=user.id, login_id=payload.login_id, password_hash=security.get_password_hash(payload.password))
     db.add(auth)
     db.commit()
     db.refresh(user)
@@ -115,7 +115,7 @@ def update_user(user_id: str, payload: schemas.UserUpdate, db: Session = Depends
 
 
 @router.patch("/{user_id}/credentials", response_model=schemas.UserOut)
-def update_credentials(user_id: str, payload: schemas.CredentialAdminUpdate, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
+def update_credentials(user_id: str, payload: schemas.CredentialAdminUpdate, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MASTER))):
     if not payload.new_login_id and not payload.new_password:
         raise HTTPException(status_code=400, detail="변경할 로그인 ID나 비밀번호를 입력하세요")
 
@@ -128,7 +128,10 @@ def update_credentials(user_id: str, payload: schemas.CredentialAdminUpdate, db:
     if not account:
         raise HTTPException(status_code=400, detail="로그인 계정이 없습니다")
 
-    if payload.new_login_id:
+    changed = False
+    login_id_changed = False
+    password_changed = False
+    if payload.new_login_id and payload.new_login_id != account.login_id:
         conflict = db.query(models.AuthAccount).filter(
             models.AuthAccount.login_id == payload.new_login_id,
             models.AuthAccount.user_id != user.id,
@@ -136,9 +139,17 @@ def update_credentials(user_id: str, payload: schemas.CredentialAdminUpdate, db:
         if conflict:
             raise HTTPException(status_code=409, detail="이미 사용 중인 로그인 ID입니다")
         account.login_id = payload.new_login_id
-    if payload.new_password:
-        account.password_hash = get_password_hash(payload.new_password)
+        changed = True
+        login_id_changed = True
+    if payload.new_password and not security.verify_password(payload.new_password, account.password_hash):
+        account.password_hash = security.get_password_hash(payload.new_password)
+        changed = True
+        password_changed = True
 
+    if not changed:
+        raise HTTPException(status_code=400, detail="변경할 로그인 ID나 비밀번호를 입력하세요")
+
+    security.bump_session_version(account)
     db.add(account)
     db.commit()
     db.refresh(user)
@@ -147,7 +158,7 @@ def update_credentials(user_id: str, payload: schemas.CredentialAdminUpdate, db:
         actor_id=str(current.id),
         action="CREDENTIAL_UPDATE",
         target_user_id=str(user.id),
-        details={"login_id_changed": bool(payload.new_login_id), "password_changed": bool(payload.new_password)},
+        details={"login_id_changed": login_id_changed, "password_changed": password_changed},
     )
     db.commit()
     return user

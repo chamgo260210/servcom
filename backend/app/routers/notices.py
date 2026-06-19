@@ -34,21 +34,43 @@ def _assert_notice_permission(current: models.User, notice_type: models.NoticeTy
         raise HTTPException(status_code=403, detail="Operators can only create work or general notices")
 
 
+def _fields_set(payload) -> set[str]:
+    return set(getattr(payload, "model_fields_set", set()))
+
+
+def _validate_notice_period(start_at: datetime | None, end_at: datetime | None) -> None:
+    if start_at and end_at and start_at > end_at:
+        raise HTTPException(status_code=400, detail="공지 시작일은 종료일보다 늦을 수 없습니다.")
+
+
 def _validate_targets(
+    db: Session,
+    current: models.User,
     scope: models.NoticeScope,
     target_roles: Iterable[models.UserRole] | None,
     target_user_ids,
 ) -> None:
+    if current.role == models.UserRole.OPERATOR and scope == models.NoticeScope.ALL:
+        raise HTTPException(status_code=403, detail="운영자는 전체 대상 공지를 만들 수 없습니다. 역할 또는 사용자 대상을 선택하세요.")
     if scope == models.NoticeScope.ROLE:
         if not target_roles:
             raise HTTPException(status_code=400, detail="target_roles required for ROLE scope")
         if target_user_ids:
             raise HTTPException(status_code=400, detail="target_user_ids not allowed for ROLE scope")
+        if current.role == models.UserRole.OPERATOR and models.UserRole.MASTER in set(target_roles):
+            raise HTTPException(status_code=403, detail="운영자는 MASTER 역할을 공지 대상으로 지정할 수 없습니다.")
     elif scope == models.NoticeScope.USER:
         if not target_user_ids:
             raise HTTPException(status_code=400, detail="target_user_ids required for USER scope")
         if target_roles:
             raise HTTPException(status_code=400, detail="target_roles not allowed for USER scope")
+        requested_ids = set(target_user_ids)
+        users = db.query(models.User).filter(models.User.id.in_(requested_ids)).all()
+        found_ids = {user.id for user in users}
+        if found_ids != requested_ids:
+            raise HTTPException(status_code=400, detail="존재하지 않는 공지 대상 사용자가 포함되어 있습니다.")
+        if current.role == models.UserRole.OPERATOR and any(user.role != models.UserRole.MEMBER for user in users):
+            raise HTTPException(status_code=403, detail="운영자는 MEMBER 사용자만 공지 대상으로 지정할 수 있습니다.")
     else:
         if target_roles or target_user_ids:
             raise HTTPException(status_code=400, detail="targets not allowed for ALL scope")
@@ -157,13 +179,22 @@ def list_notices(
         query = query.filter(read_alias.dismissed_at.is_(None))
 
     notices = query.order_by(models.Notice.priority.desc(), models.Notice.created_at.desc()).limit(200).all()
+    read_map: dict[tuple[object, models.NoticeChannel], models.NoticeRead] = {}
+    if notices:
+        notice_ids = [notice.id for notice in notices]
+        read_query = db.query(models.NoticeRead).filter(
+            models.NoticeRead.notice_id.in_(notice_ids),
+            models.NoticeRead.user_id == current.id,
+        )
+        if read_channel:
+            read_query = read_query.filter(models.NoticeRead.channel == read_channel)
+        reads = read_query.all()
+        read_map = {(read.notice_id, read.channel): read for read in reads}
+
     items: list[schemas.NoticeListItem] = []
     for notice in notices:
-        read = None
-        for read_entry in notice.reads:
-            if read_entry.user_id == current.id and read_entry.channel == notice.channel:
-                read = read_entry
-                break
+        effective_read_channel = read_channel or notice.channel
+        read = read_map.get((notice.id, effective_read_channel))
         items.append(_notice_to_schema(notice, read))
     return items
 
@@ -210,7 +241,8 @@ def create_notice(
     current: models.User = Depends(require_role(models.UserRole.OPERATOR)),
 ):
     _assert_notice_permission(current, payload.type)
-    _validate_targets(payload.scope, payload.target_roles, payload.target_user_ids)
+    _validate_notice_period(payload.start_at, payload.end_at)
+    _validate_targets(db, current, payload.scope, payload.target_roles, payload.target_user_ids)
 
     notice = models.Notice(
         title=payload.title,
@@ -274,32 +306,37 @@ def update_notice(
     if current.role == models.UserRole.OPERATOR and notice.creator and notice.creator.role == models.UserRole.MASTER:
         raise HTTPException(status_code=403, detail="Only master can edit master notices")
 
+    fields_set = _fields_set(payload)
     new_type = payload.type or notice.type
     _assert_notice_permission(current, new_type)
     new_scope = payload.scope or notice.scope
     current_roles = [models.UserRole(role) for role in notice.target_roles] if notice.target_roles else None
     current_users = [t.user_id for t in notice.targets]
-    roles_for_validation = payload.target_roles if new_scope == models.NoticeScope.ROLE else None
-    if roles_for_validation is None and new_scope == models.NoticeScope.ROLE:
+    roles_for_validation = payload.target_roles if "target_roles" in fields_set else None
+    if roles_for_validation is None and "target_roles" not in fields_set and new_scope == models.NoticeScope.ROLE:
         roles_for_validation = current_roles
-    users_for_validation = payload.target_user_ids if new_scope == models.NoticeScope.USER else None
-    if users_for_validation is None and new_scope == models.NoticeScope.USER:
+    users_for_validation = payload.target_user_ids if "target_user_ids" in fields_set else None
+    if users_for_validation is None and "target_user_ids" not in fields_set and new_scope == models.NoticeScope.USER:
         users_for_validation = current_users
-    _validate_targets(new_scope, roles_for_validation, users_for_validation)
+    new_start_at = payload.start_at if "start_at" in fields_set else notice.start_at
+    new_end_at = payload.end_at if "end_at" in fields_set else notice.end_at
+    _validate_notice_period(new_start_at, new_end_at)
+    _validate_targets(db, current, new_scope, roles_for_validation, users_for_validation)
 
     for field in ["title", "body", "type", "channel", "scope", "start_at", "end_at", "priority", "is_active"]:
-        value = getattr(payload, field)
-        if value is not None:
-            setattr(notice, field, value)
+        if field in fields_set:
+            value = getattr(payload, field)
+            if field in ("start_at", "end_at") or value is not None:
+                setattr(notice, field, value)
 
     if new_scope != models.NoticeScope.ROLE:
         notice.target_roles = None
-    elif payload.target_roles is not None:
+    elif "target_roles" in fields_set:
         notice.target_roles = [role.value for role in payload.target_roles] if payload.target_roles else None
 
     if new_scope != models.NoticeScope.USER:
         db.query(models.NoticeTarget).filter(models.NoticeTarget.notice_id == notice.id).delete()
-    elif payload.target_user_ids is not None:
+    elif "target_user_ids" in fields_set:
         db.query(models.NoticeTarget).filter(models.NoticeTarget.notice_id == notice.id).delete()
         for user_id in payload.target_user_ids:
             db.add(models.NoticeTarget(notice_id=notice.id, user_id=user_id))
@@ -412,4 +449,3 @@ def dismiss_notice(
     read.dismissed_at = datetime.now(timezone.utc)
     db.commit()
     return None
-

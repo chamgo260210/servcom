@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
+from ..core.schema_readiness import check_schema_readiness
 from .. import models, schemas
 from ..core.roles import require_role
 from ..core.security import get_password_hash
@@ -59,6 +60,19 @@ def health_check(db: Session = Depends(get_db)):
             detail="database_unavailable",
         ) from exc
     return {"db_status": "ok"}
+
+
+@router.get("/health/detail")
+def health_detail(db: Session = Depends(get_db)):
+    """DB 연결과 운영 필수 schema readiness를 함께 확인한다."""
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as exc:  # pragma: no cover - runtime safety
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database_unavailable",
+        ) from exc
+    return {"db_status": "ok", **check_schema_readiness(db)}
 
 
 def _seed_master(db: Session, master: models.User | None = None):
@@ -138,11 +152,11 @@ def _delete_domain_models(db: Session, reset_models: tuple[type[models.Base], ..
 
 
 @router.post("/reset", response_model=dict)
-def reset_data(payload: schemas.ResetRequest, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
+def reset_data(payload: schemas.ResetRequest, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MASTER))):
     scope = payload.scope
-
-    if scope in (schemas.ResetScope.OPERATORS_AND_MEMBERS, schemas.ResetScope.ALL) and current.role != models.UserRole.MASTER:
-        raise HTTPException(status_code=403, detail="Only masters can perform this reset")
+    expected_confirm_text = schemas.RESET_CONFIRM_TEXT[scope]
+    if payload.confirm_text != expected_confirm_text:
+        raise HTTPException(status_code=400, detail=f"확인 문구를 정확히 입력하세요: {expected_confirm_text}")
 
     actor_id_for_log: str | None = str(current.id)
     if scope == schemas.ResetScope.MEMBERS:

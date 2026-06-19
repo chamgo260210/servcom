@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from .config import get_settings
 from . import models
 from .core.security import get_password_hash
+from .core.schema_readiness import ensure_startup_schema
 
 settings = get_settings()
 engine = create_engine(
@@ -73,6 +74,7 @@ def initialize_database() -> None:
     db = SessionLocal()
     try:
         _ensure_request_status_enum(db)
+        ensure_startup_schema(db)
         db.execute(
             text(
                 """

@@ -1,8 +1,10 @@
 # File: /backend/app/routers/serials.py
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -11,6 +13,7 @@ from ..core.audit import record_log
 from ..core.roles import get_current_user, require_role
 
 router = APIRouter(prefix="/serials", tags=["serials"])
+SHELF_TYPE_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
 def _get_publication(db: Session, publication_id) -> models.SerialPublication:
@@ -43,6 +46,29 @@ def _ensure_unique_issn(
         query = query.filter(models.SerialPublication.id != publication_id)
     if query.first():
         raise HTTPException(status_code=400, detail="이미 등록된 ISSN입니다.")
+
+
+def _fields_set(payload) -> set[str]:
+    return set(getattr(payload, "model_fields_set", set()))
+
+
+def _normalize_shelf_type_color(color: str | None) -> str | None:
+    if color is None:
+        return None
+    normalized = color.strip()
+    if not normalized:
+        return None
+    if not SHELF_TYPE_COLOR_PATTERN.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="서가 타입 색상은 #RGB 또는 #RRGGBB 형식이어야 합니다.")
+    return normalized
+
+
+def _commit_or_integrity_error(db: Session, detail: str) -> None:
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=detail) from exc
 
 
 def _validate_shelf_position(
@@ -178,20 +204,27 @@ def update_publication(
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
     publication = _get_publication(db, publication_id)
+    fields_set = _fields_set(payload)
+
     issn = publication.issn
-    if payload.issn is not None:
+    if "issn" in fields_set:
         issn = _normalize_issn(payload.issn)
     _ensure_unique_issn(db, issn, publication.id)
 
-    next_shelf_id = publication.shelf_id if payload.shelf_id is None else payload.shelf_id
-    next_shelf_row = publication.shelf_row if payload.shelf_row is None else payload.shelf_row
-    next_shelf_column = publication.shelf_column if payload.shelf_column is None else payload.shelf_column
-    next_shelf_row_end = publication.shelf_row_end if payload.shelf_row_end is None else payload.shelf_row_end
-    next_shelf_column_end = (
-        publication.shelf_column_end
-        if payload.shelf_column_end is None
-        else payload.shelf_column_end
-    )
+    clearing_shelf = "shelf_id" in fields_set and payload.shelf_id is None
+    if clearing_shelf:
+        next_shelf_id = None
+        next_shelf_row = None
+        next_shelf_column = None
+        next_shelf_row_end = None
+        next_shelf_column_end = None
+    else:
+        next_shelf_id = payload.shelf_id if "shelf_id" in fields_set else publication.shelf_id
+        next_shelf_row = payload.shelf_row if "shelf_row" in fields_set else publication.shelf_row
+        next_shelf_column = payload.shelf_column if "shelf_column" in fields_set else publication.shelf_column
+        next_shelf_row_end = payload.shelf_row_end if "shelf_row_end" in fields_set else publication.shelf_row_end
+        next_shelf_column_end = payload.shelf_column_end if "shelf_column_end" in fields_set else publication.shelf_column_end
+
     next_shelf_row_end, next_shelf_column_end = _validate_shelf_position(
         db,
         next_shelf_id,
@@ -203,29 +236,35 @@ def update_publication(
 
     if payload.title is not None:
         publication.title = payload.title
-    if payload.issn is not None:
+    if "issn" in fields_set:
         publication.issn = issn
     if payload.acquisition_type is not None:
         publication.acquisition_type = payload.acquisition_type
     if payload.shelf_section is not None:
         publication.shelf_section = payload.shelf_section
-    if payload.shelf_id is not None:
-        publication.shelf_id = payload.shelf_id
-    if payload.shelf_row is not None:
-        publication.shelf_row = payload.shelf_row
-    if payload.shelf_column is not None:
-        publication.shelf_column = payload.shelf_column
-    if payload.shelf_row_end is not None:
-        publication.shelf_row_end = next_shelf_row_end
-    if payload.shelf_column_end is not None:
-        publication.shelf_column_end = next_shelf_column_end
-    if payload.shelf_row_end is None and next_shelf_row_end != publication.shelf_row_end:
-        publication.shelf_row_end = next_shelf_row_end
-    if payload.shelf_column_end is None and next_shelf_column_end != publication.shelf_column_end:
-        publication.shelf_column_end = next_shelf_column_end
-    if payload.shelf_note is not None:
-        publication.shelf_note = payload.shelf_note
-    if payload.remark is not None:
+
+    if clearing_shelf:
+        publication.shelf_id = None
+        publication.shelf_row = None
+        publication.shelf_column = None
+        publication.shelf_row_end = None
+        publication.shelf_column_end = None
+        publication.shelf_note = None
+    else:
+        if "shelf_id" in fields_set:
+            publication.shelf_id = payload.shelf_id
+        if "shelf_row" in fields_set:
+            publication.shelf_row = payload.shelf_row
+        if "shelf_column" in fields_set:
+            publication.shelf_column = payload.shelf_column
+        if "shelf_row_end" in fields_set or next_shelf_row_end != publication.shelf_row_end:
+            publication.shelf_row_end = next_shelf_row_end
+        if "shelf_column_end" in fields_set or next_shelf_column_end != publication.shelf_column_end:
+            publication.shelf_column_end = next_shelf_column_end
+        if "shelf_note" in fields_set:
+            publication.shelf_note = payload.shelf_note
+
+    if "remark" in fields_set:
         publication.remark = payload.remark
     publication.updated_by = current_user.id
     record_log(
@@ -337,6 +376,9 @@ def delete_layout(
     layout = db.query(models.SerialLayout).filter(models.SerialLayout.id == layout_id).first()
     if not layout:
         raise HTTPException(status_code=404, detail="배치도를 찾을 수 없습니다.")
+    shelf_count = db.query(models.SerialShelf).filter(models.SerialShelf.layout_id == layout.id).count()
+    if shelf_count:
+        raise HTTPException(status_code=409, detail=f"이 배치도에 배치된 서가 {shelf_count}개가 있어 삭제할 수 없습니다.")
     record_log(
         db,
         actor_id=str(current_user.id),
@@ -344,7 +386,7 @@ def delete_layout(
         details={"layout_id": str(layout.id), "name": layout.name, "operation": "DELETE"},
     )
     db.delete(layout)
-    db.commit()
+    _commit_or_integrity_error(db, "연결 데이터가 있어 배치도를 삭제할 수 없습니다.")
     return None
 
 
@@ -365,12 +407,14 @@ def create_shelf_type(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
+    color = _normalize_shelf_type_color(payload.color)
     shelf_type = models.SerialShelfType(
         name=payload.name,
         width=payload.width,
         height=payload.height,
         rows=payload.rows,
         columns=payload.columns,
+        color=color,
         note=payload.note,
         created_by=current_user.id,
         updated_by=current_user.id,
@@ -398,6 +442,7 @@ def update_shelf_type(
     shelf_type = db.query(models.SerialShelfType).filter(models.SerialShelfType.id == shelf_type_id).first()
     if not shelf_type:
         raise HTTPException(status_code=404, detail="서가 타입을 찾을 수 없습니다.")
+    fields_set = _fields_set(payload)
     if payload.name is not None:
         shelf_type.name = payload.name
     if payload.width is not None:
@@ -408,6 +453,8 @@ def update_shelf_type(
         shelf_type.rows = payload.rows
     if payload.columns is not None:
         shelf_type.columns = payload.columns
+    if "color" in fields_set:
+        shelf_type.color = _normalize_shelf_type_color(payload.color)
     if payload.note is not None:
         shelf_type.note = payload.note
     shelf_type.updated_by = current_user.id
@@ -431,6 +478,9 @@ def delete_shelf_type(
     shelf_type = db.query(models.SerialShelfType).filter(models.SerialShelfType.id == shelf_type_id).first()
     if not shelf_type:
         raise HTTPException(status_code=404, detail="서가 타입을 찾을 수 없습니다.")
+    shelf_count = db.query(models.SerialShelf).filter(models.SerialShelf.shelf_type_id == shelf_type.id).count()
+    if shelf_count:
+        raise HTTPException(status_code=409, detail=f"이 서가 타입을 사용하는 서가 {shelf_count}개가 있어 삭제할 수 없습니다.")
     record_log(
         db,
         actor_id=str(current_user.id),
@@ -438,7 +488,7 @@ def delete_shelf_type(
         details={"shelf_type_id": str(shelf_type.id), "name": shelf_type.name},
     )
     db.delete(shelf_type)
-    db.commit()
+    _commit_or_integrity_error(db, "연결 데이터가 있어 서가 타입을 삭제할 수 없습니다.")
     return None
 
 
@@ -532,6 +582,9 @@ def delete_shelf(
     shelf = db.query(models.SerialShelf).filter(models.SerialShelf.id == shelf_id).first()
     if not shelf:
         raise HTTPException(status_code=404, detail="서가를 찾을 수 없습니다.")
+    publication_count = db.query(models.SerialPublication).filter(models.SerialPublication.shelf_id == shelf.id).count()
+    if publication_count:
+        raise HTTPException(status_code=409, detail=f"이 서가에 등록된 간행물 {publication_count}건이 있어 삭제할 수 없습니다.")
     record_log(
         db,
         actor_id=str(current_user.id),
@@ -539,5 +592,5 @@ def delete_shelf(
         details={"shelf_id": str(shelf.id), "layout_id": str(shelf.layout_id), "code": shelf.code},
     )
     db.delete(shelf)
-    db.commit()
+    _commit_or_integrity_error(db, "연결 간행물이 있어 서가를 삭제할 수 없습니다.")
     return None
