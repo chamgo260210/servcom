@@ -395,7 +395,7 @@ function renderShelfVisual(serial) {
 
   // 색상 배정
   const typeIndex = shelfTypes.findIndex(t => String(t.id).toLowerCase().trim() === String(shelfType.id).toLowerCase().trim());
-  const color = getShelfTypeColor(typeIndex, type);
+  const color = getShelfTypeColor(typeIndex, shelfType);
 
   // 시작/종료 위치 (기본값: 동일한 셀)
   const startRow = serial.shelf_row || 0;
@@ -659,7 +659,7 @@ async function renderCanvas() {
     const shelfHeight = 2 * UNIT_SIZE; // Fixed height: 2 grid units
 
     // 서가 타입별 자동 색상 배정 (타입 순서에 따라 팔레트에서 선택)
-    const color = getShelfTypeColor(typeIndex, type);
+    const color = getShelfTypeColor(typeIndex, shelfType);
     const borderColor = color;
     const fillColor = color; // Solid color to match legend
     const textColor = '#ffffff'; // White text on solid background
