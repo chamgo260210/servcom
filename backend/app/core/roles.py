@@ -21,12 +21,16 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         user_id: str = payload.get("sub")
-        if user_id is None:
+        session_version = payload.get("session_version")
+        if user_id is None or session_version is None:
             raise credentials_exception
-    except jwt.PyJWTError:
+        token_session_version = int(session_version)
+    except (jwt.PyJWTError, TypeError, ValueError):
         raise credentials_exception
     user = db.query(User).filter(User.id == user_id, User.active == True).first()
-    if not user:
+    if not user or not user.auth_account:
+        raise credentials_exception
+    if int(user.auth_account.session_version) != token_session_version:
         raise credentials_exception
     return user
 

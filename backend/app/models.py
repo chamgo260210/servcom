@@ -208,6 +208,7 @@ class AuthAccount(Base):
     login_id = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
     last_login_at = Column(DateTime(timezone=True))
+    session_version = Column(Integer, nullable=False, server_default=text("0"), default=0)
 
     user = relationship("User", back_populates="auth_account")
 

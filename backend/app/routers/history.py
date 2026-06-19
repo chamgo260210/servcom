@@ -39,6 +39,27 @@ ACTION_LABEL = {
     "NOTICE_DELETE": "공지 삭제",
 }
 
+REQUEST_TYPE_LABEL = {
+    "ABSENCE": "휴무 신청",
+    "EXTRA": "추가 근무 신청",
+}
+
+DETAIL_SUMMARY_KEYS = [
+    "scope",
+    "type",
+    "date",
+    "target_date",
+    "visit_date",
+    "academic_year",
+    "publication_id",
+    "title",
+    "layout_id",
+    "shelf_id",
+    "code",
+    "operation",
+    "cancel_reason",
+]
+
 
 def _parse_limit(value: str | int | None) -> int:
     try:
@@ -84,19 +105,155 @@ def _age_minutes(value: datetime | None, now: datetime) -> int | None:
     return max(int((now - value).total_seconds() // 60), 0)
 
 
-def _entry_from_log(log: models.AuditLog, users: dict) -> schemas.HistoryEntry:
+def _as_text(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _detail_value(details: dict, *keys: str) -> str | None:
+    for key in keys:
+        value = _as_text(details.get(key))
+        if value:
+            return value
+    return None
+
+
+def _snapshot_value(details: dict, snapshot_key: str) -> str | None:
+    snapshot = details.get(snapshot_key)
+    if not isinstance(snapshot, dict):
+        return None
+    return _detail_value(snapshot, "name", "display_name", "username", "identifier", "login_id")
+
+
+def _user_name(user: models.User | None) -> str | None:
+    if not user:
+        return None
+    return _as_text(user.name) or _as_text(user.identifier)
+
+
+def _actor_display(log: models.AuditLog, users: dict) -> str:
+    details = log.details if isinstance(log.details, dict) else {}
+    linked_name = _user_name(users.get(log.actor_user_id))
+    return (
+        linked_name
+        or _snapshot_value(details, "actor_snapshot")
+        or _detail_value(details, "actor_name", "actor_username", "performed_by", "created_by", "updated_by")
+        or "알 수 없음"
+    )
+
+
+def _target_display(log: models.AuditLog, users: dict) -> str:
+    details = log.details if isinstance(log.details, dict) else {}
+    linked_name = _user_name(users.get(log.target_user_id))
+    return (
+        linked_name
+        or _snapshot_value(details, "target_snapshot")
+        or _snapshot_value(details, "user_snapshot")
+        or _detail_value(details, "target_name", "target_username", "user_name", "member_name", "target_identifier")
+        or "-"
+    )
+
+
+def _format_request_type(value) -> str | None:
+    text = _as_text(getattr(value, "value", value))
+    if not text:
+        return None
+    return REQUEST_TYPE_LABEL.get(text, text)
+
+
+def _format_request_from_model(req: models.ShiftRequest | None) -> str | None:
+    if not req:
+        return None
+    parts = [
+        req.target_date.isoformat() if req.target_date else None,
+        _format_request_type(req.type),
+    ]
+    if req.target_shift and req.target_shift.name:
+        parts.append(req.target_shift.name)
+    elif req.target_start_time and req.target_end_time:
+        parts.append(f"{req.target_start_time.strftime('%H:%M')}~{req.target_end_time.strftime('%H:%M')}")
+    return " / ".join(part for part in parts if part) or None
+
+
+def _format_request_from_snapshot(snapshot: dict) -> str | None:
+    parts = [
+        _detail_value(snapshot, "target_date", "date"),
+        _format_request_type(snapshot.get("type")),
+        _detail_value(snapshot, "shift_name", "target_shift_name", "shift", "target_shift_id"),
+    ]
+    if not parts[2]:
+        start_time = _detail_value(snapshot, "target_start_time", "start_time")
+        end_time = _detail_value(snapshot, "target_end_time", "end_time")
+        if start_time and end_time:
+            parts[2] = f"{start_time}~{end_time}"
+    return " / ".join(part for part in parts if part) or None
+
+
+def _request_display(log: models.AuditLog, requests: dict) -> str:
+    details = log.details if isinstance(log.details, dict) else {}
+    linked_text = _format_request_from_model(requests.get(log.request_id))
+    if linked_text:
+        return linked_text
+    snapshot = details.get("request_snapshot")
+    if isinstance(snapshot, dict):
+        snapshot_text = _format_request_from_snapshot(snapshot)
+        if snapshot_text:
+            return snapshot_text
+    detail_text = _format_request_from_snapshot(details)
+    if detail_text:
+        return detail_text
+    return "-"
+
+
+def _details_summary(details: dict | None) -> str | None:
+    if not isinstance(details, dict):
+        return None
+    parts = []
+    for key in DETAIL_SUMMARY_KEYS:
+        value = details.get(key)
+        if value is None:
+            continue
+        if key == "type":
+            value = _format_request_type(value)
+        text = _as_text(value)
+        if text:
+            parts.append(f"{key}: {text}")
+    return " / ".join(parts) if parts else None
+
+
+def _entry_from_log(log: models.AuditLog, users: dict, requests: dict) -> schemas.HistoryEntry:
+    actor_name = _user_name(users.get(log.actor_user_id))
+    target_name = _user_name(users.get(log.target_user_id))
     return schemas.HistoryEntry(
         id=log.id,
         action_type=log.action_type,
         action_label=ACTION_LABEL.get(log.action_type, log.action_type),
         actor_user_id=log.actor_user_id,
-        actor_name=users.get(log.actor_user_id).name if log.actor_user_id in users else None,
+        actor_name=actor_name,
+        actor_display_name=_actor_display(log, users),
         target_user_id=log.target_user_id,
-        target_name=users.get(log.target_user_id).name if log.target_user_id in users else None,
+        target_name=target_name,
+        target_display_name=_target_display(log, users),
         request_id=log.request_id,
+        request_display_text=_request_display(log, requests),
+        details_summary=_details_summary(log.details),
         details=log.details,
         created_at=log.created_at,
     )
+
+
+def _request_map_for_logs(db: Session, logs: list[models.AuditLog]) -> dict:
+    request_ids = [log.request_id for log in logs if log.request_id]
+    if not request_ids:
+        return {}
+    requests = (
+        db.query(models.ShiftRequest)
+        .filter(models.ShiftRequest.id.in_(request_ids))
+        .all()
+    )
+    return {request.id: request for request in requests}
 
 
 def _history_query(db: Session, days: str, action_type: str | None):
@@ -126,9 +283,13 @@ def _history_entry_to_export_row(entry: schemas.HistoryEntry) -> dict[str, str]:
         "action_label": _csv_safe(entry.action_label),
         "actor_user_id": _csv_safe(entry.actor_user_id),
         "actor_name": _csv_safe(entry.actor_name),
+        "actor_display_name": _csv_safe(entry.actor_display_name),
         "target_user_id": _csv_safe(entry.target_user_id),
         "target_name": _csv_safe(entry.target_name),
+        "target_display_name": _csv_safe(entry.target_display_name),
         "request_id": _csv_safe(entry.request_id),
+        "request_display_text": _csv_safe(entry.request_display_text),
+        "details_summary": _csv_safe(entry.details_summary),
         "details": _csv_safe(details),
     }
 
@@ -250,7 +411,8 @@ def history_export(
         .all()
     )
     users = {u.id: u for u in db.query(models.User).all()}
-    entries = [_entry_from_log(log, users) for log in logs]
+    requests = _request_map_for_logs(db, logs)
+    entries = [_entry_from_log(log, users, requests) for log in logs]
     if selected_format == "json":
         return JSONResponse(content=[entry.model_dump(mode="json") for entry in entries])
 
@@ -261,9 +423,13 @@ def history_export(
         "action_label",
         "actor_user_id",
         "actor_name",
+        "actor_display_name",
         "target_user_id",
         "target_name",
+        "target_display_name",
         "request_id",
+        "request_display_text",
+        "details_summary",
         "details",
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -293,4 +459,5 @@ def history_logs(
         query = query.filter((models.AuditLog.actor_user_id == current.id) | (models.AuditLog.target_user_id == current.id))
     logs = query.order_by(models.AuditLog.created_at.desc()).limit(selected_limit).all()
     users = {u.id: u for u in db.query(models.User).all()}
-    return [_entry_from_log(log, users) for log in logs]
+    requests = _request_map_for_logs(db, logs)
+    return [_entry_from_log(log, users, requests) for log in logs]
