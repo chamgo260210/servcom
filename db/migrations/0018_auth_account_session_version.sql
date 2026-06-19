@@ -1,0 +1,2 @@
+ALTER TABLE auth_accounts
+ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;

@@ -300,9 +300,13 @@ class HistoryEntry(BaseModel):
     action_label: str
     actor_user_id: Optional[UUID]
     actor_name: Optional[str]
+    actor_display_name: str
     target_user_id: Optional[UUID]
     target_name: Optional[str]
+    target_display_name: str
     request_id: Optional[UUID]
+    request_display_text: str
+    details_summary: Optional[str] = None
     details: Optional[dict]
     created_at: datetime
 

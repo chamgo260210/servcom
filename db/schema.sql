@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS auth_accounts (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     login_id TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    last_login_at TIMESTAMPTZ
+    last_login_at TIMESTAMPTZ,
+    session_version INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS shifts (

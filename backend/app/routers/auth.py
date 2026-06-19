@@ -2,6 +2,7 @@
 from datetime import timedelta, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .. import schemas, models
@@ -20,12 +21,25 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect login credentials")
     if not security.verify_password(form_data.password, user.auth_account.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect login credentials")
-    user.auth_account.last_login_at = datetime.now(timezone.utc)
-    db.add(user.auth_account)
+    session_version = db.execute(
+        text(
+            """
+            UPDATE auth_accounts
+            SET session_version = session_version + 1,
+                last_login_at = :last_login_at
+            WHERE user_id = CAST(:user_id AS UUID)
+            RETURNING session_version
+            """
+        ),
+        {"user_id": str(user.id), "last_login_at": datetime.now(timezone.utc)},
+    ).scalar_one()
     db.commit()
     db.refresh(user)
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    token = security.create_access_token({"sub": str(user.id), "role": user.role.value}, access_token_expires)
+    token = security.create_access_token(
+        {"sub": str(user.id), "role": user.role.value, "session_version": session_version},
+        access_token_expires,
+    )
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -48,7 +62,14 @@ def change_password(payload: schemas.PasswordChange, db: Session = Depends(get_d
 @router.post("/refresh", response_model=schemas.Token)
 def refresh_token(current_user: models.User = Depends(roles.get_current_user)):
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    token = security.create_access_token({"sub": str(current_user.id), "role": current_user.role.value}, access_token_expires)
+    token = security.create_access_token(
+        {
+            "sub": str(current_user.id),
+            "role": current_user.role.value,
+            "session_version": current_user.auth_account.session_version,
+        },
+        access_token_expires,
+    )
     return {"access_token": token, "token_type": "bearer"}
 
 

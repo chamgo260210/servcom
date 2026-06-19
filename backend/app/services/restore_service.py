@@ -331,6 +331,8 @@ def _parse_temporal(value, column_type, label: str, errors: list[str]):
 def _coerce_row(table_name: str, row: dict, errors: list[str], *, row_index: int) -> dict:
     model = TABLE_MODEL_MAP[table_name]
     columns = {column.name: column for column in model.__table__.columns}
+    if table_name == "auth_accounts" and row.get("session_version") is None:
+        row = {**row, "session_version": 0}
     unknown_columns = sorted(set(row) - set(columns))
     if unknown_columns:
         errors.append(f"{table_name}[{row_index}] has unknown columns: {', '.join(unknown_columns)}")
