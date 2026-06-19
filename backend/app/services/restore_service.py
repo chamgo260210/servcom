@@ -416,6 +416,40 @@ def _validate_internal_foreign_keys(domain: str, data: dict[str, list[dict]], er
                 errors.append(f"serial_publications[{index}].shelf_id references missing serial_shelves")
 
 
+def _normalize_user_reference_columns(
+    db: Session,
+    data: dict[str, list[dict]],
+    warnings: list[str],
+) -> list[dict[str, object]]:
+    referenced_user_ids = set()
+    for table_rows in data.values():
+        for row in table_rows:
+            for column_name in USER_REFERENCE_COLUMNS:
+                if row.get(column_name):
+                    referenced_user_ids.add(row[column_name])
+    if not referenced_user_ids:
+        return []
+
+    existing = {row[0] for row in db.query(models.User.id).filter(models.User.id.in_(referenced_user_ids)).all()}
+    normalized: dict[tuple[str, str], int] = {}
+    for table_name, table_rows in data.items():
+        for row in table_rows:
+            for column_name in USER_REFERENCE_COLUMNS:
+                if row.get(column_name) and row[column_name] not in existing:
+                    row[column_name] = None
+                    normalized[(table_name, column_name)] = normalized.get((table_name, column_name), 0) + 1
+
+    details = [
+        {"table": table_name, "column": column_name, "nullified": count}
+        for (table_name, column_name), count in sorted(normalized.items())
+    ]
+    for item in details:
+        warnings.append(
+            f"{item['table']}.{item['column']} references missing users and will be restored as NULL ({item['nullified']} rows)"
+        )
+    return details
+
+
 def _validate_user_foreign_keys(
     db: Session,
     data: dict[str, list[dict]],
@@ -852,7 +886,11 @@ def validate_backup_payload(
         else:
             coerced = _coerce_data(data, domain, errors) if not missing else {name: [] for name in required}
         if not missing and not unknown:
-            if domain in SUPPORTED_DOMAINS:
+            normalization_summary = []
+            if domain in {"VISITORS", "SERIALS"}:
+                normalization_summary = _normalize_user_reference_columns(db, coerced, warnings)
+                _validate_internal_foreign_keys(domain, coerced, errors)
+            elif domain in SUPPORTED_DOMAINS:
                 _validate_internal_foreign_keys(domain, coerced, errors)
                 _validate_user_foreign_keys(db, coerced, errors)
             elif domain == "WORK":
@@ -874,6 +912,7 @@ def validate_backup_payload(
         "schema_version": schema_version,
         "summary": summary,
         "warnings": warnings,
+        "normalizations": normalization_summary if 'normalization_summary' in locals() else [],
         "errors": errors,
         "_payload": payload if not errors else None,
         "_coerced_data": coerced if not errors else None,
@@ -1251,7 +1290,7 @@ def restore_backup(
             requested_by=current_user.id,
             finished_at=datetime.now(timezone.utc),
             error_message="Backup validation failed",
-            summary={"errors": validation["errors"]},
+            summary={"errors": validation["errors"], "warnings": validation.get("warnings", [])},
         )
         db.add(job)
         db.flush()
@@ -1265,7 +1304,7 @@ def restore_backup(
             status="SUCCESS",
             requested_by=current_user.id,
             finished_at=datetime.now(timezone.utc),
-            summary={"validation": validation["summary"]},
+            summary={"validation": validation["summary"], "warnings": validation.get("warnings", []), "normalizations": validation.get("normalizations", [])},
         )
         db.add(job)
         db.flush()
@@ -1311,6 +1350,10 @@ def restore_backup(
         "pre_restore_backup_id": str(pre_restore.id),
         "restore_point_backup_id": str(pre_restore.id),
     }
+    if validation.get("warnings"):
+        summary["warnings"] = validation["warnings"]
+    if validation.get("normalizations"):
+        summary["normalizations"] = validation["normalizations"]
     if cleanup_warnings:
         summary["restore_point_cleanup_warnings"] = cleanup_warnings
     if domain == "FULL":
@@ -1338,7 +1381,7 @@ def restore_uploaded_backup(
             requested_by=current_user.id,
             finished_at=datetime.now(timezone.utc),
             error_message="Uploaded backup validation failed",
-            summary={"errors": validation["errors"]},
+            summary={"errors": validation["errors"], "warnings": validation.get("warnings", [])},
         )
         db.add(job)
         db.flush()
@@ -1377,6 +1420,10 @@ def restore_uploaded_backup(
         "restore_point_backup_id": str(pre_restore.id),
         "source": "UPLOAD",
     }
+    if validation.get("warnings"):
+        job.summary["warnings"] = validation["warnings"]
+    if validation.get("normalizations"):
+        job.summary["normalizations"] = validation["normalizations"]
     if cleanup_warnings:
         job.summary["restore_point_cleanup_warnings"] = cleanup_warnings
     return job, validation

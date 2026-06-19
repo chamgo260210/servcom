@@ -109,6 +109,12 @@ class AssignmentOut(BaseModel):
     valid_to: Optional[date]
 
 
+class AssignmentBulkOut(BaseModel):
+    assignments: list[AssignmentOut]
+    replaced_assignments: int
+    created_assignments: int
+
+
 class RequestCreate(BaseModel):
     type: RequestType
     target_date: date
@@ -361,8 +367,18 @@ class ResetScope(str, enum.Enum):
     SERIALS_ALL = "serials_all"
 
 
+RESET_CONFIRM_TEXT = {
+    ResetScope.MEMBERS: "구성원 초기화",
+    ResetScope.OPERATORS_AND_MEMBERS: "근무 시스템 초기화",
+    ResetScope.VISITORS_ALL: "출입 데이터 초기화",
+    ResetScope.SERIALS_ALL: "연속간행물 초기화",
+    ResetScope.ALL: "전체 초기화",
+}
+
+
 class ResetRequest(BaseModel):
     scope: ResetScope
+    confirm_text: str
 
 
 class NoticeBase(BaseModel):
@@ -536,10 +552,6 @@ class VisitorEntryCreate(BaseModel):
 class VisitorBulkEntryItem(BaseModel):
     visit_date: date
     daily_visitors: int
-
-
-class VisitorBulkEntryRequest(BaseModel):
-    entries: list[VisitorBulkEntryItem]
 
 
 class VisitorBulkEntryRequest(BaseModel):

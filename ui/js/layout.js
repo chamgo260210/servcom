@@ -1,5 +1,5 @@
 // File: /ui/js/layout.js
-import { loadUser, logout, startSessionCountdown, refreshSession, shouldShowPasswordUpdatePrompt, snoozePasswordUpdate, markPasswordUpdated } from './auth.js';
+import { loadUser, logout, startSessionCountdown, refreshSession, shouldShowPasswordUpdatePrompt, snoozePasswordUpdate } from './auth.js';
 import { checkSystemStatus } from './status.js';
 import { API_BASE_URL } from './api.js';
 import { initNotifications } from './notifications.js';
@@ -165,7 +165,7 @@ if (!globalThis.__worktimeLayout) {
         { page: 'members', href: html('admin_members.html'), text: '구성원 관리', minRole: 'OPERATOR' },
         { page: 'shifts', href: html('admin_shifts.html'), text: '근무 관리', minRole: 'OPERATOR' },
         { page: 'overview', href: html('schedule_overview.html'), text: '근무 배정표' },
-        { page: 'requests', href: html('request_center.html'), text: '근무 변경 신청', roles: 'MASTER,MEMBER' },
+        { page: 'requests', href: html('request_center.html'), text: '근무 변경 신청', roles: 'MASTER,OPERATOR,MEMBER' },
         { page: 'approvals', href: html('request_approvals.html'), text: '변경 승인함', roles: 'MASTER,OPERATOR' },
         { page: 'work-data-management', href: root('work_data_management.html'), text: '근무 데이터 관리', minRole: 'OPERATOR' },
         { page: 'work-system-backup-management', href: root('work_system_data_management.html'), text: '근무 시스템 데이터 관리', minRole: 'MASTER' },
@@ -276,7 +276,6 @@ if (!globalThis.__worktimeLayout) {
     `;
     document.body.appendChild(modal);
     document.getElementById('pw-change-now')?.addEventListener('click', () => {
-      markPasswordUpdated();
       window.location.href = 'member_profile.html';
     });
     document.getElementById('pw-change-later')?.addEventListener('click', () => {

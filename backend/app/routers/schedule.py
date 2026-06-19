@@ -88,14 +88,16 @@ def _ensure_slot(db: Session, slot: schemas.ShiftSlot) -> models.Shift:
         location=slot.location,
     )
     db.add(shift)
-    db.commit()
-    db.refresh(shift)
+    db.flush()
     return shift
 
 
 @router.post("/slots/ensure", response_model=schemas.ShiftOut)
 def ensure_slot(slot: schemas.ShiftSlot, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MEMBER))):
-    return _ensure_slot(db, slot)
+    shift = _ensure_slot(db, slot)
+    db.commit()
+    db.refresh(shift)
+    return shift
 
 
 @router.get("/weekly_view", response_model=list[schemas.ScheduleEvent])
@@ -197,7 +199,7 @@ def _merge_slots(slots: list[schemas.SlotRange]) -> list[schemas.SlotRange]:
     return merged
 
 
-@router.post("/slots/bulk_assign", response_model=list[schemas.AssignmentOut])
+@router.post("/slots/bulk_assign", response_model=schemas.AssignmentBulkOut)
 def bulk_assign_slots(payload: schemas.SlotAssignBulk, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
     if not payload.slots:
         raise HTTPException(status_code=400, detail="배정할 시간이 없습니다. 최소 1개 이상의 구간을 선택하세요.")
@@ -248,9 +250,7 @@ def bulk_assign_slots(payload: schemas.SlotAssignBulk, db: Session = Depends(get
         )
         db.add(assignment)
         assignments.append(assignment)
-    db.commit()
-    for a in assignments:
-        db.refresh(a)
+    db.flush()
     record_log(
         db,
         actor_id=str(current.id),
@@ -267,7 +267,11 @@ def bulk_assign_slots(payload: schemas.SlotAssignBulk, db: Session = Depends(get
         },
     )
     db.commit()
-    return assignments
+    return {
+        "assignments": assignments,
+        "replaced_assignments": removed,
+        "created_assignments": len(assignments),
+    }
 
 
 @router.post("/shifts", response_model=schemas.ShiftOut)

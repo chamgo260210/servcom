@@ -208,6 +208,74 @@ def _apply_entry_delta(
         period_stat.open_days = max(0, (period_stat.open_days or 0) + delta_days)
 
 
+
+def rebuild_visitor_stats(db: Session, year: models.VisitorSchoolYear) -> dict[str, int]:
+    db.query(models.VisitorMonthlyStat).filter(models.VisitorMonthlyStat.school_year_id == year.id).delete(synchronize_session=False)
+    db.query(models.VisitorPeriodStat).filter(models.VisitorPeriodStat.school_year_id == year.id).delete(synchronize_session=False)
+    db.query(models.VisitorYearStat).filter(models.VisitorYearStat.school_year_id == year.id).delete(synchronize_session=False)
+    db.flush()
+
+    monthly_rows = (
+        db.query(
+            func.extract("year", models.VisitorDailyCount.visit_date).label("year"),
+            func.extract("month", models.VisitorDailyCount.visit_date).label("month"),
+            func.coalesce(func.sum(models.VisitorDailyCount.daily_visitors), 0).label("total_visitors"),
+            func.count(models.VisitorDailyCount.id).label("open_days"),
+        )
+        .filter(models.VisitorDailyCount.school_year_id == year.id)
+        .group_by("year", "month")
+        .all()
+    )
+    for row in monthly_rows:
+        db.add(models.VisitorMonthlyStat(
+            school_year_id=year.id,
+            year=int(row.year),
+            month=int(row.month),
+            total_visitors=int(row.total_visitors or 0),
+            open_days=int(row.open_days or 0),
+        ))
+
+    period_count = 0
+    periods = db.query(models.VisitorPeriod).filter(models.VisitorPeriod.school_year_id == year.id).all()
+    for period in periods:
+        if not period.start_date or not period.end_date:
+            continue
+        totals = (
+            db.query(
+                func.coalesce(func.sum(models.VisitorDailyCount.daily_visitors), 0),
+                func.count(models.VisitorDailyCount.id),
+            )
+            .filter(
+                models.VisitorDailyCount.school_year_id == year.id,
+                models.VisitorDailyCount.visit_date >= period.start_date,
+                models.VisitorDailyCount.visit_date <= period.end_date,
+            )
+            .one()
+        )
+        db.add(models.VisitorPeriodStat(
+            school_year_id=year.id,
+            period_id=period.id,
+            total_visitors=int(totals[0] or 0),
+            open_days=int(totals[1] or 0),
+        ))
+        period_count += 1
+
+    year_totals = (
+        db.query(
+            func.coalesce(func.sum(models.VisitorDailyCount.daily_visitors), 0),
+            func.count(models.VisitorDailyCount.id),
+        )
+        .filter(models.VisitorDailyCount.school_year_id == year.id)
+        .one()
+    )
+    db.add(models.VisitorYearStat(
+        school_year_id=year.id,
+        total_visitors=int(year_totals[0] or 0),
+        open_days=int(year_totals[1] or 0),
+    ))
+    db.flush()
+    return {"monthly_stats": len(monthly_rows), "period_stats": period_count, "year_stats": 1}
+
 def _rebuild_period_stats(db: Session, year: models.VisitorSchoolYear) -> None:
     db.query(models.VisitorPeriodStat).filter(models.VisitorPeriodStat.school_year_id == year.id).delete()
     periods = (
@@ -697,6 +765,7 @@ def upsert_entry(year_id, payload: schemas.VisitorEntryCreate, db: Session = Dep
         )
         .first()
     )
+    is_new_entry = entry is None
     if entry:
         action = "VISITOR_DAILY_UPDATE"
         is_operator = current_user.role in (models.UserRole.OPERATOR, models.UserRole.MASTER)
@@ -721,7 +790,7 @@ def upsert_entry(year_id, payload: schemas.VisitorEntryCreate, db: Session = Dep
     running.previous_total = payload.previous_total
     running.current_total = payload.previous_total
     running.running_date = today
-    _apply_entry_delta(db, year, payload.visit_date, delta_visitors, 0 if entry.id else 1)
+    _apply_entry_delta(db, year, payload.visit_date, delta_visitors, 1 if is_new_entry else 0)
     record_log(
         db,
         actor_id=str(current_user.id),
@@ -885,6 +954,20 @@ def bulk_upsert_entries(
         )
     return results
 
+
+
+@router.post("/years/{year_id}/repair-stats")
+def repair_year_stats(year_id, db: Session = Depends(get_db), current_user=Depends(require_role(models.UserRole.OPERATOR))):
+    year = _get_year(db, year_id)
+    result = rebuild_visitor_stats(db, year)
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="VISITOR_STATS_REPAIR",
+        details={"year_id": str(year.id), **result},
+    )
+    db.commit()
+    return result
 
 @router.delete("/years/{year_id}/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_entry(year_id, entry_id, db: Session = Depends(get_db), current_user=Depends(get_current_user)):

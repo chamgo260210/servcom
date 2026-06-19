@@ -1,4 +1,5 @@
 # File: /backend/main.py
+import logging
 import os
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +12,7 @@ from app.config import get_settings
 from app.deps import engine, initialize_database
 from app.routers import admin, auth, data_management, history, notices, requests, schedule, serials, system, users, visitors
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 if settings.APP_ENV.lower() in {"local", "development", "dev"}:
     models.Base.metadata.create_all(bind=engine)
@@ -47,6 +49,7 @@ async def add_fallback_cors(request, call_next):
     except HTTPException as exc:
         response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
     except Exception:
+        logger.exception("Unhandled request error")
         response = JSONResponse({"detail": "internal_server_error"}, status_code=500)
 
     if settings.CORS_ALLOW_ORIGINS:

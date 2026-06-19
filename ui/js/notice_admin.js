@@ -230,8 +230,16 @@ async function submitForm(event) {
     payload.scope = 'ROLE';
     payload.target_roles = ['OPERATOR', 'MEMBER'];
   }
-  if (form.start_at.value) payload.start_at = new Date(form.start_at.value).toISOString();
-  if (form.end_at.value) payload.end_at = new Date(form.end_at.value).toISOString();
+  if (form.start_at.value) {
+    payload.start_at = new Date(form.start_at.value).toISOString();
+  } else if (editingId) {
+    payload.start_at = null;
+  }
+  if (form.end_at.value) {
+    payload.end_at = new Date(form.end_at.value).toISOString();
+  } else if (editingId) {
+    payload.end_at = null;
+  }
   if (payload.scope === 'ROLE' && !operatorAllScope) {
     payload.target_roles = getSelectedValues(roleTargets);
   }

@@ -11,4 +11,5 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.get("/audit-logs", response_model=list[schemas.AuditLogOut])
 def audit_logs(db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MASTER))):
+    # Legacy compatibility endpoint. New UI history views use the /history router.
     return db.query(models.AuditLog).order_by(models.AuditLog.created_at.desc()).limit(200).all()

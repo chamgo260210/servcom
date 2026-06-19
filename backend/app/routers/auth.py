@@ -14,10 +14,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
 
-def _bump_session_version(account: models.AuthAccount) -> None:
-    account.session_version = (account.session_version or 0) + 1
-
-
 @router.post("/login", response_model=schemas.Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(models.User).join(models.AuthAccount).filter(models.AuthAccount.login_id == form_data.username).first()
@@ -58,7 +54,7 @@ def change_password(payload: schemas.PasswordChange, db: Session = Depends(get_d
     if not account or not security.verify_password(payload.old_password, account.password_hash):
         raise HTTPException(status_code=400, detail="Invalid current password")
     account.password_hash = security.get_password_hash(payload.new_password)
-    _bump_session_version(account)
+    security.bump_session_version(account)
     db.add(account)
     db.commit()
     return {"detail": "Password updated"}
@@ -106,7 +102,7 @@ def update_account(payload: schemas.AccountUpdate, db: Session = Depends(get_db)
     if not changed:
         raise HTTPException(status_code=400, detail="No changes provided")
 
-    _bump_session_version(account)
+    security.bump_session_version(account)
     db.add(account)
     db.commit()
     db.refresh(current_user)

@@ -6,6 +6,7 @@ import jwt
 from passlib.context import CryptContext
 
 from ..config import get_settings
+from .. import models
 from ..models import UserRole
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -26,6 +27,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def bump_session_version(account: models.AuthAccount) -> int:
+    account.session_version = (account.session_version or 0) + 1
+    return account.session_version
 
 
 def role_allows(user_role: UserRole, required: UserRole) -> bool:

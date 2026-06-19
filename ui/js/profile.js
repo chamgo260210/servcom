@@ -101,7 +101,9 @@ function bindAccountForm() {
       renderProfile(updated);
       form.reset();
       showAccountWarning('계정 정보가 업데이트되었습니다.', ['필요 시 다시 로그인하세요.']);
-      markPasswordUpdated();
+      if (payload.new_password) {
+        markPasswordUpdated();
+      }
     } catch (err) {
       const message = err?.message || '업데이트에 실패했습니다.';
       const tips = [];
@@ -141,8 +143,15 @@ function bindResetButtons(role) {
   const buttons = document.querySelectorAll('[data-reset-scope]');
   const allowedByRole = {
     MASTER: ['members', 'operators_members', 'visitors_all', 'serials_all', 'all'],
-    OPERATOR: ['members', 'visitors_all', 'serials_all'],
+    OPERATOR: [],
     MEMBER: []
+  };
+  const confirmTexts = {
+    members: '구성원 초기화',
+    operators_members: '근무 시스템 초기화',
+    visitors_all: '출입 데이터 초기화',
+    serials_all: '연속간행물 초기화',
+    all: '전체 초기화'
   };
   const confirmMessages = {
     members: [
@@ -186,11 +195,17 @@ function bindResetButtons(role) {
     btn.addEventListener('click', async () => {
       const confirmMsg = confirmMessages[scope] || `정말로 ${btn.textContent.trim()} 작업을 진행하시겠습니까?`;
       if (!confirm(confirmMsg)) return;
+      const requiredText = confirmTexts[scope];
+      const confirmText = prompt(`초기화를 실행하려면 다음 문구를 정확히 입력하세요:\n${requiredText}`);
+      if (confirmText !== requiredText) {
+        alert('확인 문구가 일치하지 않아 초기화를 취소했습니다.');
+        return;
+      }
       try {
         const result = await apiRequest('/reset', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scope })
+          body: JSON.stringify({ scope, confirm_text: confirmText })
         });
         const label = document.getElementById('reset-result');
         if (label) label.textContent = `${formatTimeSeoul()} · ${result.detail}`;
@@ -218,7 +233,7 @@ function applyProfileVisibility(role) {
     if (assignmentsCard) assignmentsCard.style.display = '';
   } else if (role === 'OPERATOR') {
     if (visibleUsersCard) visibleUsersCard.style.display = '';
-    if (resetCard) resetCard.style.display = '';
+    if (resetCard) resetCard.style.display = 'none';
     if (assignmentsCard) assignmentsCard.style.display = 'none';
   } else {
     if (visibleUsersCard) visibleUsersCard.style.display = '';
@@ -239,4 +254,3 @@ async function attachProfilePage(user) {
 }
 
 export { attachProfilePage };
-

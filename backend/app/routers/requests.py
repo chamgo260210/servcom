@@ -93,10 +93,24 @@ def _time_window_from_range(start_hour: int | None, end_hour: int | None):
     return datetime.strptime(f"{start_hour:02d}:00", "%H:%M").time(), datetime.strptime(f"{end_hour:02d}:00", "%H:%M").time()
 
 
-def _overlaps(a_start, a_end, b_start, b_end):
-    if a_start is None or a_end is None or b_start is None or b_end is None:
-        return True
+def _effective_window(start_time, end_time, shift: models.Shift):
+    return start_time or shift.start_time, end_time or shift.end_time
+
+
+def _contains(container_start, container_end, child_start, child_end) -> bool:
+    return container_start <= child_start and child_end <= container_end
+
+
+def _overlaps(a_start, a_end, b_start, b_end) -> bool:
     return a_start < b_end and b_start < a_end
+
+
+def _event_overlaps(ev: schemas.ScheduleEvent, target_date, start_time, end_time) -> bool:
+    return ev.date == target_date and _overlaps(start_time, end_time, ev.start_time, ev.end_time)
+
+
+def _event_contains(ev: schemas.ScheduleEvent, target_date, start_time, end_time) -> bool:
+    return ev.date == target_date and _contains(ev.start_time, ev.end_time, start_time, end_time)
 
 
 def _week_start(d):
@@ -108,19 +122,32 @@ def _assert_same_weekday(target_date, shift):
         raise HTTPException(status_code=400, detail="선택한 날짜와 슬롯의 요일이 일치하지 않습니다")
 
 
-def _time_window_from_range(start_hour: int | None, end_hour: int | None):
-    if start_hour is None or end_hour is None:
-        return None, None
-    if start_hour >= end_hour:
-        raise HTTPException(status_code=400, detail="시간 범위가 올바르지 않습니다")
-    return datetime.strptime(f"{start_hour:02d}:00", "%H:%M").time(), datetime.strptime(f"{end_hour:02d}:00", "%H:%M").time()
-
-
-def _overlaps(a_start, a_end, b_start, b_end):
-    # None means full range
-    if a_start is None or a_end is None or b_start is None or b_end is None:
-        return True
-    return a_start < b_end and b_start < a_end
+def _assert_no_pending_overlap(
+    db: Session,
+    *,
+    target_user_id,
+    target_date,
+    start_time,
+    end_time,
+) -> None:
+    pending_requests = (
+        db.query(models.ShiftRequest)
+        .filter(
+            models.ShiftRequest.user_id == target_user_id,
+            models.ShiftRequest.target_date == target_date,
+            models.ShiftRequest.status == models.RequestStatus.PENDING,
+        )
+        .all()
+    )
+    shift_ids = {req.target_shift_id for req in pending_requests if req.target_shift_id}
+    shifts = {shift.id: shift for shift in db.query(models.Shift).filter(models.Shift.id.in_(shift_ids)).all()} if shift_ids else {}
+    for req in pending_requests:
+        shift = shifts.get(req.target_shift_id)
+        if not shift:
+            continue
+        req_start, req_end = _effective_window(req.target_start_time, req.target_end_time, shift)
+        if _overlaps(start_time, end_time, req_start, req_end):
+            raise HTTPException(status_code=409, detail="이미 동일한 시간대에 대기 중인 신청이 있습니다")
 
 
 @router.post("", response_model=list[schemas.RequestOut], status_code=status.HTTP_201_CREATED)
@@ -148,9 +175,9 @@ def submit_request(payload: schemas.RequestCreate, current=Depends(require_role(
     # 현재 주간 일정(결재 반영 포함)을 로드하여 결근/추가 가능 여부 판단
     week_start = _week_start(payload.target_date)
     events = week_events(db, week_start, str(target_user_id))
-    effective_slots = {(str(ev.shift_id), ev.date): ev for ev in events}
 
     created_requests: list[models.ShiftRequest] = []
+    requested_windows: list[tuple] = []
     for r in ranges:
         sid = r.shift_id
         shift = db.query(models.Shift).filter(models.Shift.id == sid).first()
@@ -158,27 +185,31 @@ def submit_request(payload: schemas.RequestCreate, current=Depends(require_role(
             raise HTTPException(status_code=404, detail="선택한 시간 슬롯 정보를 찾을 수 없습니다")
         _assert_same_weekday(payload.target_date, shift)
 
-        start_time, end_time = _time_window_from_range(r.start_hour, r.end_hour)
-        if payload.type == models.RequestType.ABSENCE and start_time and end_time:
-            if start_time < shift.start_time or end_time > shift.end_time:
-                raise HTTPException(status_code=400, detail="선택 시간이 배정된 시간 범위를 벗어났습니다")
+        raw_start_time, raw_end_time = _time_window_from_range(r.start_hour, r.end_hour)
+        start_time, end_time = _effective_window(raw_start_time, raw_end_time, shift)
+        if start_time < shift.start_time or end_time > shift.end_time:
+            raise HTTPException(status_code=400, detail="선택 시간이 배정된 시간 범위를 벗어났습니다")
 
-        dup_query = db.query(models.ShiftRequest).filter(
-            models.ShiftRequest.user_id == target_user_id,
-            models.ShiftRequest.target_date == payload.target_date,
-            models.ShiftRequest.target_shift_id == sid,
-            models.ShiftRequest.status == models.RequestStatus.PENDING,
+        for existing_start, existing_end in requested_windows:
+            if _overlaps(start_time, end_time, existing_start, existing_end):
+                raise HTTPException(status_code=400, detail="신청 시간 구간이 서로 겹칩니다")
+        requested_windows.append((start_time, end_time))
+
+        _assert_no_pending_overlap(
+            db,
+            target_user_id=target_user_id,
+            target_date=payload.target_date,
+            start_time=start_time,
+            end_time=end_time,
         )
-        for dup in dup_query:
-            if _overlaps(start_time, end_time, dup.target_start_time, dup.target_end_time):
-                raise HTTPException(status_code=409, detail="이미 동일한 시간에 대기 중인 신청이 있습니다")
 
-        key = (str(sid), payload.target_date)
-        has_slot = key in effective_slots
-        if payload.type == models.RequestType.ABSENCE and not has_slot:
-            raise HTTPException(status_code=400, detail="결근 신청은 현재 배정된 시간에서만 가능합니다")
-        if payload.type == models.RequestType.EXTRA and has_slot:
-            raise HTTPException(status_code=400, detail="이미 배정된 시간에는 추가 근무를 신청할 수 없습니다")
+        working_events = [ev for ev in events if ev.date == payload.target_date]
+        if payload.type == models.RequestType.ABSENCE:
+            if not any(_event_contains(ev, payload.target_date, start_time, end_time) for ev in working_events):
+                raise HTTPException(status_code=400, detail="결근 신청은 현재 근무 중인 시간 범위 안에서만 가능합니다")
+        elif payload.type == models.RequestType.EXTRA:
+            if any(_event_overlaps(ev, payload.target_date, start_time, end_time) for ev in working_events):
+                raise HTTPException(status_code=400, detail="이미 근무가 있는 시간에는 추가 근무를 신청할 수 없습니다")
 
         req = models.ShiftRequest(
             user_id=target_user_id,

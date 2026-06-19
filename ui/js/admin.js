@@ -70,6 +70,14 @@ function updateSaveButtonState() {
   saveBtn.disabled = !(name && login && passwordReady);
 }
 
+function setCredentialInputsState(isEditing) {
+  const loginInput = document.getElementById('edit-login');
+  const pwInput = document.getElementById('edit-password');
+  const disabled = isEditing && !editorOptions.allowCredentialEdit;
+  if (loginInput) loginInput.disabled = disabled;
+  if (pwInput) pwInput.disabled = disabled;
+}
+
 function setEditForm(member) {
   if (selectedMember?.id === member.id) {
     clearEditForm();
@@ -92,8 +100,8 @@ function setEditForm(member) {
   if (loginInput) loginInput.value = member.auth_account?.login_id || '';
   if (pwInput) {
     pwInput.value = '';
-    pwInput.disabled = !editorOptions.allowCredentialEdit;
   }
+  setCredentialInputsState(true);
   if (saveBtn) saveBtn.disabled = false;
   const detail = document.getElementById('member-detail');
   const modeLabel = document.getElementById('member-form-mode');
@@ -127,8 +135,8 @@ function clearEditForm() {
   if (loginInput) loginInput.value = '';
   if (pwInput) {
     pwInput.value = '';
-    pwInput.disabled = !editorOptions.allowCredentialEdit;
   }
+  setCredentialInputsState(false);
   updateSaveButtonState();
   const detail = document.getElementById('member-detail');
   const modeLabel = document.getElementById('member-form-mode');
@@ -511,14 +519,29 @@ async function assignShift(event) {
       start_hour: slot.start_hour,
       end_hour: slot.end_hour
     }));
+    const userSelect = document.getElementById('assign-user');
+    const selectedUserLabel = userSelect?.selectedOptions?.[0]?.textContent?.trim() || '선택한 구성원';
+    const rangeLabel = `${valid_from} ~ ${valid_to || '제한 없음'}`;
+    const confirmMessage = [
+      '선택한 근무 배정을 저장하시겠습니까?',
+      '',
+      `구성원: ${selectedUserLabel}`,
+      `적용 기간: ${rangeLabel}`,
+      `선택 슬롯 수: ${slots.length}개`,
+      '기존 배정은 선택한 슬롯 기준의 새 배정으로 교체됩니다.'
+    ].join('\n');
+    if (!confirm(confirmMessage)) return;
+
     const payload = { user_id, valid_from, slots };
     if (valid_to) payload.valid_to = valid_to;
-    await apiRequest('/schedule/slots/bulk_assign', {
+    const result = await apiRequest('/schedule/slots/bulk_assign', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    alert('선택한 근무 시간이 저장되었습니다.');
+    const replaced = result?.replaced_assignments ?? 0;
+    const created = result?.created_assignments ?? result?.assignments?.length ?? slots.length;
+    alert(`선택한 근무 시간이 저장되었습니다. 교체 ${replaced}건, 생성 ${created}건`);
     const refreshed = await refreshAssignedSlotsForUser();
     if (refreshed === false) {
       window.location.reload();
