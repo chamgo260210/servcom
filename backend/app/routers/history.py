@@ -93,6 +93,19 @@ def _history_cutoff(days: str) -> datetime | None:
     return datetime.now(timezone.utc) - timedelta(days=int(days))
 
 
+def _latest_full_reset_at(db: Session) -> datetime | None:
+    reset_logs = (
+        db.query(models.AuditLog)
+        .filter(models.AuditLog.action_type == "RESET_DATA")
+        .order_by(models.AuditLog.created_at.desc())
+    )
+    for log in reset_logs.yield_per(100):
+        details = log.details if isinstance(log.details, dict) else {}
+        if details.get("scope") == "all":
+            return log.created_at
+    return None
+
+
 def _age_days(value: datetime | None, now: datetime) -> int | None:
     if value is None:
         return None
@@ -256,9 +269,19 @@ def _request_map_for_logs(db: Session, logs: list[models.AuditLog]) -> dict:
     return {request.id: request for request in requests}
 
 
-def _history_query(db: Session, days: str, action_type: str | None):
+def _history_query(
+    db: Session,
+    days: str,
+    action_type: str | None,
+    include_before_reset: bool = False,
+    latest_full_reset_at: datetime | None = None,
+):
     cutoff = _history_cutoff(days)
     query = db.query(models.AuditLog)
+    if not include_before_reset:
+        reset_at = latest_full_reset_at if latest_full_reset_at is not None else _latest_full_reset_at(db)
+        if reset_at is not None:
+            query = query.filter(models.AuditLog.created_at >= reset_at)
     if cutoff is not None:
         query = query.filter(models.AuditLog.created_at >= cutoff)
     if action_type and action_type.strip():
@@ -301,6 +324,14 @@ def history_stats(db: Session = Depends(get_db), current=Depends(require_role(mo
     recent_cutoff = now - timedelta(days=DEFAULT_HISTORY_DAYS)
     recent_90_cutoff = now - timedelta(days=90)
     total_logs = db.query(func.count(models.AuditLog.id)).scalar() or 0
+    latest_full_reset_at = _latest_full_reset_at(db)
+    logs_after_full_reset = (
+        db.query(func.count(models.AuditLog.id))
+        .filter(models.AuditLog.created_at >= latest_full_reset_at)
+        .scalar()
+        if latest_full_reset_at is not None
+        else total_logs
+    ) or 0
     logs_last_7_days = (
         db.query(func.count(models.AuditLog.id))
         .filter(models.AuditLog.created_at >= recent_7_cutoff)
@@ -333,6 +364,9 @@ def history_stats(db: Session = Depends(get_db), current=Depends(require_role(mo
     )
     return schemas.HistoryStatsOut(
         total_logs=total_logs,
+        logs_after_full_reset=logs_after_full_reset,
+        latest_full_reset_at=latest_full_reset_at,
+        default_scope_label="최근 시스템 전체 초기화 이후" if latest_full_reset_at else "전체 기준",
         logs_last_7_days=logs_last_7_days,
         recent_30_days=recent_30_days,
         logs_last_90_days=logs_last_90_days,
@@ -398,6 +432,7 @@ def history_export(
     limit: str | None = None,
     action_type: str | None = None,
     format: str | None = None,
+    include_before_reset: bool = False,
     db: Session = Depends(get_db),
     current=Depends(require_role(models.UserRole.MASTER)),
 ):
@@ -405,7 +440,7 @@ def history_export(
     selected_limit = _parse_export_limit(limit)
     selected_format = _parse_export_format(format)
     logs = (
-        _history_query(db, selected_days, action_type)
+        _history_query(db, selected_days, action_type, include_before_reset=include_before_reset)
         .order_by(models.AuditLog.created_at.desc())
         .limit(selected_limit)
         .all()
@@ -449,12 +484,13 @@ def history_logs(
     days: str | None = None,
     limit: str | None = None,
     action_type: str | None = None,
+    include_before_reset: bool = False,
     db: Session = Depends(get_db),
     current=Depends(require_role(models.UserRole.MASTER)),
 ):
     selected_days = _parse_days(days)
     selected_limit = _parse_limit(limit)
-    query = _history_query(db, selected_days, action_type)
+    query = _history_query(db, selected_days, action_type, include_before_reset=include_before_reset)
     if current.role == models.UserRole.MEMBER:
         query = query.filter((models.AuditLog.actor_user_id == current.id) | (models.AuditLog.target_user_id == current.id))
     logs = query.order_by(models.AuditLog.created_at.desc()).limit(selected_limit).all()
