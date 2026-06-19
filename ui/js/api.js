@@ -50,6 +50,51 @@ function clearToken() {
   localStorage.removeItem('token_exp');
 }
 
+let sessionExpiredModalShown = false;
+
+function showSessionExpiredModal(message = SESSION_EXPIRED_MESSAGE) {
+  if (sessionExpiredModalShown) return;
+  sessionExpiredModalShown = true;
+
+  clearToken();
+
+  const existing = document.getElementById('session-expired-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'session-expired-modal';
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>세션이 종료되었습니다</h3>
+      </div>
+      <div class="modal-body">
+        <p>${message}</p>
+        <p class="muted small">계속 사용하려면 다시 로그인해 주세요.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="session-expired-confirm" type="button">확인</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const goLogin = () => {
+    window.location.replace(buildLoginUrl());
+  };
+
+  document.getElementById('session-expired-confirm')?.addEventListener('click', goLogin);
+
+  // 사용자가 Enter를 눌러도 로그인 화면으로 이동
+  modal.tabIndex = -1;
+  modal.focus();
+  modal.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') goLogin();
+  });
+}
+
 async function refreshToken() {
   const token = getToken();
   if (!token) return null;
@@ -72,8 +117,7 @@ async function apiRequest(path, options = {}) {
     try {
       token = await refreshToken();
     } catch (e) {
-      clearToken();
-      redirectToLogin(SESSION_EXPIRED_MESSAGE);
+      showSessionExpiredModal(SESSION_EXPIRED_MESSAGE);
       return;
     }
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -96,7 +140,7 @@ async function apiRequest(path, options = {}) {
     }
   }
   if (resp.status === 401) {
-    redirectToLogin(SESSION_EXPIRED_MESSAGE);
+    showSessionExpiredModal(SESSION_EXPIRED_MESSAGE);
     return;
   }
   if (!resp.ok) {
