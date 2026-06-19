@@ -21,6 +21,7 @@
     <div class="card mobile-login-card">
       <div class="logo"><img src="../assets/logo.png" alt="logo" />다산 근무 관리자</div>
       <form id="login-form" class="stack">
+        <div id="auth-message" class="alert" aria-live="polite" style="display:none;"></div>
         <label for="login_id">로그인 ID</label>
         <input id="login_id" required />
         <label for="password">비밀번호</label>
@@ -52,10 +53,11 @@
     </div>
   </div>
   <script type="module">
-    import { login, setupPasswordToggle } from '../js/auth.js';
+    import { login, setupPasswordToggle, showAuthLogoutReason } from '../js/auth.js';
     import { initLoginShell } from '../js/layout.js';
 
     await initLoginShell();
+    showAuthLogoutReason();
     setupPasswordToggle('password', 'toggle-login-password');
     document.getElementById('login-form').addEventListener('submit', login);
   </script>
