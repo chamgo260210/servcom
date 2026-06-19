@@ -72,6 +72,14 @@ function canCancelRequest(req) {
   return false;
 }
 
+function appendActionButton(container, label, className, onClick) {
+  const button = document.createElement('button');
+  button.textContent = label;
+  button.className = className;
+  button.onclick = onClick;
+  container.appendChild(button);
+}
+
 let shiftCache = null;
 let slotCells = new Map();
 let selectedSlots = new Set();
@@ -519,31 +527,28 @@ async function loadPendingRequests() {
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
   if (tbody) tbody.innerHTML = '';
   if (cardList) cardList.innerHTML = '';
-  data
-    .filter((r) => r.status === 'PENDING')
-    .forEach((r) => {
+  data.forEach((r) => {
     const requester = userMap[r.user_id];
     const timeLabel = requestTimeLabel(r);
     const timeText = requestTimeLabel(r);
     const baseShiftLabel = r.target_shift_id ? shiftLabel(r.target_shift_id) : '근무 정보 없음';
     const shiftText = `${baseShiftLabel}${timeText ? ` (${timeText})` : ''}`;
-    const statusText = r.status === 'REJECTED' ? '거절/취소' : (statusLabel[r.status] || r.status);
+    const statusText = statusLabel[r.status] || r.status;
     const actions = document.createElement('div');
     actions.className = 'request-card-actions';
-    if (r.status === 'CANCELLED') {
+    if (r.status === 'PENDING') {
+      appendActionButton(actions, '승인', 'btn secondary tiny', () => act(r.id, 'approve'));
+      appendActionButton(actions, '거절', 'btn muted tiny', () => act(r.id, 'reject'));
+    } else if (r.status === 'APPROVED' && !isBeforeTodaySeoul(r.target_date)) {
+      appendActionButton(actions, '승인 취소', 'btn muted tiny', () => act(r.id, 'reopen'));
+    } else if (r.status === 'REJECTED') {
+      appendActionButton(actions, '거절 취소', 'btn muted tiny', () => act(r.id, 'reopen'));
+    } else if (r.status === 'CANCELLED') {
       actions.textContent = '승인된 후 취소됨';
       actions.className = 'muted small';
     } else {
-      const approve = document.createElement('button');
-      approve.textContent = '승인';
-      approve.className = 'btn secondary tiny';
-      approve.onclick = () => act(r.id, 'approve');
-      const reject = document.createElement('button');
-      reject.textContent = '거절';
-      reject.className = 'btn muted tiny';
-      reject.onclick = () => act(r.id, 'reject');
-      actions.appendChild(approve);
-      actions.appendChild(reject);
+      actions.textContent = '-';
+      actions.className = 'muted small';
     }
     if (cardList) {
       const card = document.createElement('div');
@@ -608,6 +613,8 @@ async function renderRequestFeed() {
         ? '승인됨'
         : entry.action_type === 'REQUEST_REJECT'
           ? '거절됨'
+          : entry.action_type === 'REQUEST_REOPEN'
+            ? (entry.cancel_reason === 'REOPEN_FROM_APPROVED' ? '승인 취소됨' : '거절 취소됨')
           : entry.cancelled_after_approval
             ? '승인 후 취소'
             : '취소됨';

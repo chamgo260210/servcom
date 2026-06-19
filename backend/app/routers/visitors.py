@@ -83,6 +83,21 @@ def _default_period_ranges(academic_year: int, year_start: date, year_end: date)
     }
 
 
+PERIOD_ORDER = [
+    models.VisitorPeriodType.SEMESTER_1,
+    models.VisitorPeriodType.SUMMER_BREAK,
+    models.VisitorPeriodType.SEMESTER_2,
+    models.VisitorPeriodType.WINTER_BREAK,
+]
+
+PERIOD_DETAIL_KEYS = {
+    models.VisitorPeriodType.SEMESTER_1: "semester1",
+    models.VisitorPeriodType.SUMMER_BREAK: "summer_break",
+    models.VisitorPeriodType.SEMESTER_2: "semester2",
+    models.VisitorPeriodType.WINTER_BREAK: "winter_break",
+}
+
+
 def _get_year(db: Session, year_id) -> models.VisitorSchoolYear:
     year = db.query(models.VisitorSchoolYear).filter(models.VisitorSchoolYear.id == year_id).first()
     if not year:
@@ -220,6 +235,39 @@ def _rebuild_period_stats(db: Session, year: models.VisitorSchoolYear) -> None:
                 open_days=len(entries),
             )
         )
+
+
+def _period_details(periods: list[models.VisitorPeriod]) -> dict[str, str | None]:
+    details: dict[str, str | None] = {}
+    period_map = {period.period_type: period for period in periods}
+    for period_type in PERIOD_ORDER:
+        key = PERIOD_DETAIL_KEYS[period_type]
+        period = period_map.get(period_type)
+        details[f"{key}_start"] = period.start_date.isoformat() if period and period.start_date else None
+        details[f"{key}_end"] = period.end_date.isoformat() if period and period.end_date else None
+    return details
+
+
+def _validate_period_ranges(
+    year: models.VisitorSchoolYear,
+    period_map: dict[models.VisitorPeriodType, schemas.VisitorPeriodUpsert],
+) -> None:
+    missing = [period_type.value for period_type in PERIOD_ORDER if period_type not in period_map]
+    if missing:
+        raise HTTPException(status_code=400, detail="모든 학기/방학 기간을 입력해야 합니다.")
+
+    previous_end: date | None = None
+    for period_type in PERIOD_ORDER:
+        period = period_map[period_type]
+        if not period.start_date or not period.end_date:
+            raise HTTPException(status_code=400, detail="모든 학기/방학 기간의 시작일과 종료일을 입력해야 합니다.")
+        if period.start_date > period.end_date:
+            raise HTTPException(status_code=400, detail="기간 시작일은 종료일보다 늦을 수 없습니다.")
+        if period.start_date < year.start_date or period.end_date > year.end_date:
+            raise HTTPException(status_code=400, detail="학기/방학 기간은 학년도 기간 안에 있어야 합니다.")
+        if previous_end and previous_end >= period.start_date:
+            raise HTTPException(status_code=400, detail="학기/방학 기간은 서로 겹치지 않고 순서대로 입력해야 합니다.")
+        previous_end = period.end_date
 
 
 def _ensure_monthly_stats(db: Session, year: models.VisitorSchoolYear) -> list[models.VisitorMonthlyStat]:
@@ -561,7 +609,61 @@ def delete_year(year_id, db: Session = Depends(get_db), current_user=Depends(req
 
 @router.put("/years/{year_id}/periods", response_model=list[schemas.VisitorPeriodOut])
 def upsert_periods(year_id, payload: list[schemas.VisitorPeriodUpsert], db: Session = Depends(get_db), current_user=Depends(require_role(models.UserRole.OPERATOR))):
-    raise HTTPException(status_code=403, detail="기간은 학년도 생성 시에만 설정할 수 있습니다.")
+    year = _get_year(db, year_id)
+    if not payload:
+        raise HTTPException(status_code=400, detail="수정할 학기/방학 기간을 입력해야 합니다.")
+
+    period_map: dict[models.VisitorPeriodType, schemas.VisitorPeriodUpsert] = {}
+    for item in payload:
+        if item.period_type in period_map:
+            raise HTTPException(status_code=400, detail="중복된 기간 유형이 포함되어 있습니다.")
+        period_map[item.period_type] = item
+    _validate_period_ranges(year, period_map)
+
+    periods = (
+        db.query(models.VisitorPeriod)
+        .filter(models.VisitorPeriod.school_year_id == year.id)
+        .all()
+    )
+    before = _period_details(periods)
+    existing = {period.period_type: period for period in periods}
+    updated_periods: list[models.VisitorPeriod] = []
+    for period_type in PERIOD_ORDER:
+        item = period_map[period_type]
+        period = existing.get(period_type)
+        if not period:
+            period = models.VisitorPeriod(
+                school_year_id=year.id,
+                period_type=period_type,
+                name=item.name or PERIOD_DEFAULTS[period_type],
+            )
+            db.add(period)
+        period.name = item.name or PERIOD_DEFAULTS[period_type]
+        period.start_date = item.start_date
+        period.end_date = item.end_date
+        updated_periods.append(period)
+
+    db.flush()
+    _rebuild_period_stats(db, year)
+    after = _period_details(updated_periods)
+    record_log(
+        db,
+        actor_id=str(current_user.id),
+        action="VISITOR_YEAR_UPDATE",
+        details={
+            "year_id": str(year.id),
+            "academic_year": year.academic_year,
+            "before": before,
+            "after": after,
+        },
+    )
+    db.commit()
+    return (
+        db.query(models.VisitorPeriod)
+        .filter(models.VisitorPeriod.school_year_id == year.id)
+        .order_by(models.VisitorPeriod.period_type.asc())
+        .all()
+    )
 
 
 @router.post("/years/{year_id}/running-total/load", response_model=schemas.VisitorRunningTotalOut)

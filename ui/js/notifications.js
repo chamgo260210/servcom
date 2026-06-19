@@ -159,6 +159,9 @@ function buildFeedEvents(entries, userMap, shiftMap) {
     } else if (entry.action_type === 'REQUEST_REJECT') {
       status = 'REJECTED';
       text = `거부 처리됨: ${applicant} - ${base}`;
+    } else if (entry.action_type === 'REQUEST_REOPEN') {
+      status = 'PENDING';
+      text = `근무 변경 신청이 재검토 상태로 변경되었습니다: ${applicant} - ${base}`;
     } else if (entry.action_type === 'REQUEST_CANCEL') {
       status = 'CANCELLED';
       text = entry.cancel_reason === 'EXPIRED'
@@ -184,6 +187,8 @@ async function fetchNotifications(user) {
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
   const shiftMap = Object.fromEntries(shifts.map((s) => [s.id, s]));
   if (user.role === 'MEMBER') {
+    const feed = await apiRequest('/requests/my/feed');
+    if (feed.length) return buildFeedEvents(feed, userMap, shiftMap).slice(0, 15);
     const source = await apiRequest('/requests/my');
     return buildRequestEvents(source, userMap, shiftMap, user.role).slice(0, 15);
   }
