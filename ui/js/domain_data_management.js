@@ -168,16 +168,29 @@ function isAllowed() {
   return roleOrder[currentUser.role] >= roleOrder.OPERATOR;
 }
 
-async function downloadFile(path) {
+function filenameFromContentDisposition(response, fallback = 'download') {
+  const disposition = response.headers.get('content-disposition') || '';
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].replace(/^"|"$/g, ''));
+  }
+
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+  if (asciiMatch?.[1]) {
+    return decodeURIComponent(asciiMatch[1]);
+  }
+
+  return fallback;
+}
+
+async function downloadFile(path, fallbackFilename = 'download') {
   const resp = await apiRequest(path, { responseType: 'blob' });
   const blob = await resp.blob();
-  const disposition = resp.headers.get('content-disposition') || '';
-  const match = disposition.match(/filename="?([^"]+)"?/i);
-  const filename = match?.[1] || 'download';
+  const filename = filenameFromContentDisposition(resp, fallbackFilename);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = decodeURIComponent(filename);
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -642,17 +655,21 @@ async function createBackup() {
 async function exportExcel() {
   if (!config.canExcel || !config.excelPath) return;
   let path = config.excelPath;
+  let fallbackFilename = 'download';
   if (domain === 'VISITORS') {
     const yearId = yearSelect?.value;
     if (!yearId) {
       setMessage(excelMessage, '다운로드할 학년도를 선택하세요.', true);
       return;
     }
+    const selectedOption = yearSelect?.options?.[yearSelect.selectedIndex];
+    const yearText = selectedOption?.textContent?.match(/\d{4}/)?.[0] || 'visitors';
+    fallbackFilename = `${yearText}학년도 참고열람실 출입자 통계.xlsx`;
     path = `${path}?year_id=${encodeURIComponent(yearId)}`;
   }
   setMessage(excelMessage, 'Excel 생성 중...');
   try {
-    await downloadFile(path);
+    await downloadFile(path, fallbackFilename);
     setMessage(excelMessage, 'Excel 다운로드를 시작했습니다.');
   } catch (e) {
     setMessage(excelMessage, e.message || 'Excel 다운로드에 실패했습니다.', true);
