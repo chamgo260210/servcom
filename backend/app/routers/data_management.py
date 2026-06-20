@@ -40,6 +40,37 @@ from ..services.restore_service import (
 
 router = APIRouter(prefix="/data", tags=["data-management"])
 
+RESET_CUTOFF_SCOPES_BY_DOMAIN = {
+    "WORK": ("members", "all"),
+    "WORK_SYSTEM": ("operators_members", "all"),
+    "VISITORS": ("visitors_all", "all"),
+    "SERIALS": ("serials_all", "all"),
+    "FULL": ("all",),
+}
+
+
+def _audit_details(log: models.AuditLog) -> dict:
+    return log.details if isinstance(log.details, dict) else {}
+
+
+def _latest_reset_cutoff(db: Session, domain: str) -> tuple[datetime | None, str | None, tuple[str, ...]]:
+    requested_domain = normalize_domain(domain)
+    reset_scopes = RESET_CUTOFF_SCOPES_BY_DOMAIN.get(requested_domain)
+    if not reset_scopes:
+        raise HTTPException(status_code=400, detail="Unsupported backup domain")
+    logs = (
+        db.query(models.AuditLog)
+        .filter(models.AuditLog.action_type == "RESET_DATA")
+        .order_by(models.AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    for log in logs:
+        scope = _audit_details(log).get("scope")
+        if scope in reset_scopes:
+            return log.created_at, scope, reset_scopes
+    return None, None, reset_scopes
+
 
 def _reject_unsupported_domain(domain: str) -> str:
     normalized = normalize_domain(domain)
@@ -845,6 +876,22 @@ def rollback_restore_job(
         )
         db.commit()
         raise HTTPException(status_code=400, detail="Rollback failed") from exc
+
+
+@router.get("/restores/reset-cutoff", response_model=schemas.RestoreHistoryResetCutoffOut)
+def get_restore_reset_cutoff(
+    domain: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(models.UserRole.OPERATOR)),
+):
+    requested_domain = _ensure_domain_access(domain, current_user, action="view")
+    latest_reset_at, latest_reset_scope, reset_scopes = _latest_reset_cutoff(db, requested_domain)
+    return {
+        "domain": requested_domain,
+        "reset_scopes": list(reset_scopes),
+        "latest_reset_at": latest_reset_at,
+        "latest_reset_scope": latest_reset_scope,
+    }
 
 
 @router.get("/restores", response_model=list[schemas.DataRestoreJobOut])

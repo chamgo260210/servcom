@@ -219,6 +219,13 @@ class DataBackupOut(BaseModel):
     deleted_at: datetime | None = None
 
 
+class RestoreHistoryResetCutoffOut(BaseModel):
+    domain: str
+    reset_scopes: list[str]
+    latest_reset_at: datetime | None = None
+    latest_reset_scope: str | None = None
+
+
 class DataRestoreJobOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
