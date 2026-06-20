@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from .. import models, schemas
@@ -26,6 +27,8 @@ PERIOD_DEFAULTS = {
 }
 
 MAX_DAILY_VISITORS = 1_000_000
+MAX_COUNTER_VALUE = 1_000_000
+MAX_COUNTER_TOTAL = 100_000_000
 
 
 def _today_seoul() -> date:
@@ -123,6 +126,32 @@ def _validate_daily_visitors(value: int | None) -> None:
     if value is None:
         raise HTTPException(status_code=400, detail="일일 방문자 수를 입력하세요.")
     _ensure_non_negative("일일 방문자 수", value, MAX_DAILY_VISITORS)
+
+
+def _entry_calculation_source(entry: models.VisitorDailyCount) -> str:
+    if all(getattr(entry, field) is not None for field in ("previous_total", "count1", "count2", "current_total")):
+        return "COUNTER"
+    return "NONE"
+
+
+def _entry_out(entry: models.VisitorDailyCount, creator_name: str | None = None, updater_name: str | None = None) -> schemas.VisitorEntryOut:
+    return schemas.VisitorEntryOut(
+        id=entry.id,
+        school_year_id=entry.school_year_id,
+        visit_date=entry.visit_date,
+        daily_visitors=entry.daily_visitors,
+        previous_total=entry.previous_total,
+        count1=entry.count1,
+        count2=entry.count2,
+        current_total=entry.current_total,
+        calculation_source=_entry_calculation_source(entry),
+        created_by=entry.created_by,
+        updated_by=entry.updated_by,
+        created_by_name=creator_name,
+        updated_by_name=updater_name,
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+    )
 
 
 def _get_running_total(db: Session, year: models.VisitorSchoolYear) -> models.VisitorRunningTotal:
@@ -624,20 +653,7 @@ def list_entries(
     )
     entry_out = []
     for entry, creator_name, updater_name in entries:
-        entry_out.append(
-            schemas.VisitorEntryOut(
-                id=entry.id,
-                school_year_id=entry.school_year_id,
-                visit_date=entry.visit_date,
-                daily_visitors=entry.daily_visitors,
-                created_by=entry.created_by,
-                updated_by=entry.updated_by,
-                created_by_name=creator_name,
-                updated_by_name=updater_name,
-                created_at=entry.created_at,
-                updated_at=entry.updated_at,
-            )
-        )
+        entry_out.append(_entry_out(entry, creator_name, updater_name))
     return entry_out
 
 
@@ -754,70 +770,82 @@ def upsert_entry(year_id, payload: schemas.VisitorEntryCreate, db: Session = Dep
     today = _today_seoul()
     if payload.visit_date != today:
         raise HTTPException(status_code=403, detail="일일 입력은 오늘 날짜만 가능합니다.")
-    _validate_daily_visitors(payload.daily_visitors)
-    if payload.previous_total is None:
-        raise HTTPException(status_code=400, detail="전일 합산을 입력하거나 불러오세요.")
-    entry = (
-        db.query(models.VisitorDailyCount)
-        .filter(
-            models.VisitorDailyCount.school_year_id == year.id,
-            models.VisitorDailyCount.visit_date == payload.visit_date,
-        )
-        .first()
-    )
-    is_new_entry = entry is None
-    if entry:
-        action = "VISITOR_DAILY_UPDATE"
-        is_operator = current_user.role in (models.UserRole.OPERATOR, models.UserRole.MASTER)
-        if not is_operator and entry.created_by != current_user.id:
-            raise HTTPException(status_code=403, detail="본인이 입력한 기록만 수정할 수 있습니다.")
-        delta_visitors = payload.daily_visitors - entry.daily_visitors
-        entry.daily_visitors = payload.daily_visitors
-        entry.updated_by = current_user.id
-    else:
-        action = "VISITOR_DAILY_CREATE"
-        delta_visitors = payload.daily_visitors
-        entry = models.VisitorDailyCount(
-            school_year_id=year.id,
-            visit_date=payload.visit_date,
-            daily_visitors=payload.daily_visitors,
-            created_by=current_user.id,
-            updated_by=current_user.id,
-        )
-        db.add(entry)
-        db.flush()
-    running = _get_running_total(db, year)
-    running.previous_total = payload.previous_total
-    running.current_total = payload.previous_total
-    running.running_date = today
-    _apply_entry_delta(db, year, payload.visit_date, delta_visitors, 1 if is_new_entry else 0)
-    record_log(
-        db,
-        actor_id=str(current_user.id),
-        action=action,
-        details={
-            "year_id": str(year.id),
-            "entry_id": str(entry.id) if entry.id else None,
-            "visit_date": payload.visit_date.isoformat(),
-            "daily_visitors": payload.daily_visitors,
-        },
-    )
-    db.commit()
-    db.refresh(entry)
-    users = {u.id: u for u in db.query(models.User).all()}
-    return schemas.VisitorEntryOut(
-        id=entry.id,
-        school_year_id=entry.school_year_id,
-        visit_date=entry.visit_date,
-        daily_visitors=entry.daily_visitors,
-        created_by=entry.created_by,
-        updated_by=entry.updated_by,
-        created_by_name=users.get(entry.created_by).name if entry.created_by in users else None,
-        updated_by_name=users.get(entry.updated_by).name if entry.updated_by in users else None,
-        created_at=entry.created_at,
-        updated_at=entry.updated_at,
-    )
 
+    _ensure_non_negative("전일 합", payload.previous_total, MAX_COUNTER_TOTAL)
+    _ensure_non_negative("Count 1", payload.count1, MAX_COUNTER_VALUE)
+    _ensure_non_negative("Count 2", payload.count2, MAX_COUNTER_VALUE)
+    current_total = payload.count1 + payload.count2
+    if current_total > MAX_COUNTER_TOTAL:
+        raise HTTPException(status_code=400, detail=f"금일 합은 {MAX_COUNTER_TOTAL:,} 이하만 입력할 수 있습니다.")
+    daily_visitors = current_total - payload.previous_total
+    if daily_visitors < 0:
+        raise HTTPException(status_code=400, detail="금일 출입자가 음수입니다. 전일 합과 Count 값을 확인하세요.")
+    _validate_daily_visitors(daily_visitors)
+
+    try:
+        entry = (
+            db.query(models.VisitorDailyCount)
+            .filter(
+                models.VisitorDailyCount.school_year_id == year.id,
+                models.VisitorDailyCount.visit_date == payload.visit_date,
+            )
+            .first()
+        )
+        is_new_entry = entry is None
+        if entry:
+            action = "VISITOR_DAILY_UPDATE"
+            is_operator = current_user.role in (models.UserRole.OPERATOR, models.UserRole.MASTER)
+            if not is_operator and entry.created_by != current_user.id:
+                raise HTTPException(status_code=403, detail="본인이 입력한 기록만 수정할 수 있습니다.")
+            delta_visitors = daily_visitors - entry.daily_visitors
+            entry.updated_by = current_user.id
+        else:
+            action = "VISITOR_DAILY_CREATE"
+            delta_visitors = daily_visitors
+            entry = models.VisitorDailyCount(
+                school_year_id=year.id,
+                visit_date=payload.visit_date,
+                created_by=current_user.id,
+                updated_by=current_user.id,
+            )
+            db.add(entry)
+
+        entry.previous_total = payload.previous_total
+        entry.count1 = payload.count1
+        entry.count2 = payload.count2
+        entry.current_total = current_total
+        entry.daily_visitors = daily_visitors
+        db.flush()
+
+        running = _get_running_total(db, year)
+        running.previous_total = current_total
+        running.current_total = current_total
+        running.running_date = today
+        _apply_entry_delta(db, year, payload.visit_date, delta_visitors, 1 if is_new_entry else 0)
+        record_log(
+            db,
+            actor_id=str(current_user.id),
+            action=action,
+            details={
+                "year_id": str(year.id),
+                "entry_id": str(entry.id) if entry.id else None,
+                "visit_date": payload.visit_date.isoformat(),
+                "previous_total": payload.previous_total,
+                "count1": payload.count1,
+                "count2": payload.count2,
+                "current_total": current_total,
+                "daily_visitors": daily_visitors,
+            },
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="같은 학년도와 날짜의 출입자 기록이 이미 저장되었습니다. 새로고침 후 다시 시도하세요.") from exc
+
+    db.refresh(entry)
+    creator_name = db.query(models.User.name).filter(models.User.id == entry.created_by).scalar() if entry.created_by else None
+    updater_name = db.query(models.User.name).filter(models.User.id == entry.updated_by).scalar() if entry.updated_by else None
+    return _entry_out(entry, creator_name, updater_name)
 
 @router.delete("/years/{year_id}/entries", status_code=status.HTTP_204_NO_CONTENT)
 def delete_entries(
@@ -903,6 +931,16 @@ def bulk_upsert_entries(
                 action = "VISITOR_DAILY_UPDATE"
                 delta_visitors = item.daily_visitors - entry.daily_visitors
                 entry.daily_visitors = item.daily_visitors
+                if item.previous_total is not None and item.count1 is not None and item.count2 is not None:
+                    entry.previous_total = item.previous_total
+                    entry.count1 = item.count1
+                    entry.count2 = item.count2
+                    entry.current_total = item.count1 + item.count2
+                else:
+                    entry.previous_total = None
+                    entry.count1 = None
+                    entry.count2 = None
+                    entry.current_total = None
                 entry.updated_by = current_user.id
                 _apply_entry_delta(db, year, item.visit_date, delta_visitors, 0)
             else:
@@ -911,6 +949,10 @@ def bulk_upsert_entries(
                     school_year_id=year.id,
                     visit_date=item.visit_date,
                     daily_visitors=item.daily_visitors,
+                    previous_total=item.previous_total if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
+                    count1=item.count1 if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
+                    count2=item.count2 if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
+                    current_total=(item.count1 + item.count2) if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
                     created_by=current_user.id,
                     updated_by=current_user.id,
                 )
@@ -938,20 +980,11 @@ def bulk_upsert_entries(
     results: list[schemas.VisitorEntryOut] = []
     for entry in updated_entries:
         db.refresh(entry)
-        results.append(
-            schemas.VisitorEntryOut(
-                id=entry.id,
-                school_year_id=entry.school_year_id,
-                visit_date=entry.visit_date,
-                daily_visitors=entry.daily_visitors,
-                created_by=entry.created_by,
-                updated_by=entry.updated_by,
-                created_by_name=users.get(entry.created_by).name if entry.created_by in users else None,
-                updated_by_name=users.get(entry.updated_by).name if entry.updated_by in users else None,
-                created_at=entry.created_at,
-                updated_at=entry.updated_at,
-            )
-        )
+        results.append(_entry_out(
+            entry,
+            users.get(entry.created_by).name if entry.created_by in users else None,
+            users.get(entry.updated_by).name if entry.updated_by in users else None,
+        ))
     return results
 
 

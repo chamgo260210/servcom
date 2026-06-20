@@ -35,6 +35,35 @@ function formatNumber(value) {
   return Number(value).toLocaleString('ko-KR');
 }
 
+function hasCalculationDetails(entry) {
+  return Boolean(entry)
+    && entry.previous_total !== null && entry.previous_total !== undefined
+    && entry.count1 !== null && entry.count1 !== undefined
+    && entry.count2 !== null && entry.count2 !== undefined
+    && entry.current_total !== null && entry.current_total !== undefined;
+}
+
+function calculationStatus(entry) {
+  return hasCalculationDetails(entry) ? '원본 있음' : '계산 원본 없음';
+}
+
+function renderCalculationDetailHtml(entry) {
+  if (!entry) return '<div class="muted">선택된 기록이 없습니다.</div>';
+  const updater = entry.updated_by_name || entry.created_by_name || '-';
+  const noSource = hasCalculationDetails(entry) ? '' : '<div class="muted">계산 원본 없음</div>';
+  return `
+    ${noSource}
+    <div class="helper-item"><div class="muted">날짜</div><strong>${formatDate(entry.visit_date)}</strong></div>
+    <div class="helper-item"><div class="muted">전일 합</div><strong>${formatNumber(entry.previous_total)}</strong></div>
+    <div class="helper-item"><div class="muted">Count 1</div><strong>${formatNumber(entry.count1)}</strong></div>
+    <div class="helper-item"><div class="muted">Count 2</div><strong>${formatNumber(entry.count2)}</strong></div>
+    <div class="helper-item"><div class="muted">금일 합</div><strong>${formatNumber(entry.current_total)}</strong></div>
+    <div class="helper-item"><div class="muted">금일 출입자</div><strong>${formatNumber(entry.daily_visitors)}</strong></div>
+    <div class="helper-item"><div class="muted">입력자/수정자</div><strong>${updater}</strong></div>
+    <div class="helper-item"><div class="muted">수정 시각</div><strong>${formatDateTime(entry.updated_at)}</strong></div>
+  `;
+}
+
 function parseNumberInput(value) {
   if (value === null || value === undefined) return null;
   if (value === '') return null;
@@ -232,7 +261,13 @@ function renderBulkMonthTable() {
     tr.innerHTML = `
       <td>${formatDate(dateStr)}</td>
       <td><input type="number" min="0" class="bulk-month-input" data-date="${dateStr}" data-original="${value ?? ''}" value="${value ?? ''}" /></td>
+      <td>${entry ? calculationStatus(entry) : '-'}</td>
+      <td>${formatNumber(entry?.previous_total)}</td>
+      <td>${formatNumber(entry?.count1)}</td>
+      <td>${formatNumber(entry?.count2)}</td>
+      <td>${formatNumber(entry?.current_total)}</td>
     `;
+    if (entry) tr.addEventListener('click', () => selectEntry(entry));
     tbody.appendChild(tr);
     current.setDate(current.getDate() + 1);
   }
@@ -356,6 +391,7 @@ async function renderEntries() {
     tr.innerHTML = `
       <td>${formatDate(entry.visit_date)}</td>
       <td>${formatNumber(entry.daily_visitors)}</td>
+      <td>${calculationStatus(entry)}</td>
       <td>${updater}</td>
       <td>${formatDateTime(entry.updated_at)}</td>
     `;
@@ -545,7 +581,7 @@ async function renderCalendar() {
     `;
     if (entry) {
       cell.classList.add('has-entry');
-      cell.title = `${formatDate(dateStr)}: ${formatNumber(entry.daily_visitors)}명 (${author})`;
+      cell.title = `${formatDate(dateStr)}: ${formatNumber(entry.daily_visitors)}명 · ${calculationStatus(entry)} (${author})`;
       cell.addEventListener('click', () => selectEntry(entry));
     }
     grid.appendChild(cell);
@@ -634,6 +670,8 @@ function selectEntry(entry) {
 
   updateEntryPreview(entry);
   updateBulkEntryPreview(entry);
+  const calendarPreview = getElement('calendar-entry-preview');
+  if (calendarPreview) calendarPreview.innerHTML = renderCalculationDetailHtml(entry);
   renderEntries();
 }
 
@@ -673,11 +711,21 @@ function updateTodayEntryCard() {
   status.textContent = '오늘 기록을 확인하세요.';
   summary.style.display = '';
   const dateEl = getElement('today-entry-date');
+  const prevEl = getElement('today-entry-prev-total');
+  const count1El = getElement('today-entry-count1');
+  const count2El = getElement('today-entry-count2');
+  const currentEl = getElement('today-entry-current-total');
   const visitorsEl = getElement('today-entry-visitors');
+  const sourceEl = getElement('today-entry-source');
   const updaterEl = getElement('today-entry-updater');
   const updatedEl = getElement('today-entry-updated');
   if (dateEl) dateEl.textContent = formatDate(entry.visit_date);
+  if (prevEl) prevEl.textContent = formatNumber(entry.previous_total);
+  if (count1El) count1El.textContent = formatNumber(entry.count1);
+  if (count2El) count2El.textContent = formatNumber(entry.count2);
+  if (currentEl) currentEl.textContent = formatNumber(entry.current_total);
   if (visitorsEl) visitorsEl.textContent = formatNumber(entry.daily_visitors);
+  if (sourceEl) sourceEl.textContent = calculationStatus(entry);
   if (updaterEl) updaterEl.textContent = entry.updated_by_name || entry.created_by_name || '-';
   if (updatedEl) updatedEl.textContent = formatDateTime(entry.updated_at);
 }
@@ -687,8 +735,10 @@ function updateBulkEntryPreview(entry) {
   const dailyInput = parseNumberInput(getElement('bulk-daily-visitors')?.value);
   const dailyEl = getElement('bulk-preview-daily');
   const updaterEl = getElement('bulk-preview-updater');
+  const detailEl = getElement('bulk-preview-details');
   if (dailyEl) dailyEl.textContent = formatNumber(dailyInput ?? entry?.daily_visitors ?? null);
   if (updaterEl) updaterEl.textContent = entry?.updated_by_name || entry?.created_by_name || '-';
+  if (detailEl) detailEl.innerHTML = entry ? renderCalculationDetailHtml(entry) : '<div class="muted">계산 원본 없음</div>';
 }
 
 async function loadPreviousTotal() {
@@ -909,8 +959,9 @@ function bindEvents() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           visit_date: visitDate,
-          daily_visitors: dailyVisitors,
-          previous_total: totalCount
+          previous_total: prevTotal,
+          count1,
+          count2
         })
       });
       await loadYearDetail(currentYear.id);

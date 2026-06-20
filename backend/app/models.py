@@ -15,6 +15,7 @@ from sqlalchemy import (
     text,
     Integer,
     BigInteger,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
@@ -549,6 +550,7 @@ class VisitorPeriod(Base):
 
 class VisitorDailyCount(Base):
     __tablename__ = "visitor_daily_counts"
+    __table_args__ = (UniqueConstraint("school_year_id", "visit_date", name="uq_visitor_daily_counts_school_year_visit_date"),)
 
     id = Column(
         UUID(as_uuid=True),
@@ -557,6 +559,10 @@ class VisitorDailyCount(Base):
     )
     school_year_id = Column(UUID(as_uuid=True), ForeignKey("visitor_school_years.id", ondelete="CASCADE"), nullable=False)
     visit_date = Column(Date, nullable=False)
+    previous_total = Column(Integer)
+    count1 = Column(Integer)
+    count2 = Column(Integer)
+    current_total = Column(Integer)
     daily_visitors = Column(Integer, nullable=False, default=0)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
