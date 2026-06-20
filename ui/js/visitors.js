@@ -257,6 +257,33 @@ function updateBulkEntryAvailability() {
   }
 }
 
+function updatePeriodYearLabel() {
+  const target = getElement('visitor-period-year-label');
+  if (!target) return;
+  if (!currentYear) {
+    target.textContent = '현재 편집 대상: 선택된 학년도가 없습니다.';
+    return;
+  }
+  const yearLabel = currentYear.label || `${currentYear.academic_year}학년도`;
+  target.textContent = `현재 편집 대상: ${yearLabel}`;
+}
+
+function updatePeriodModeHint() {
+  const hint = getElement('visitor-period-mode-hint');
+  if (!hint) return;
+  if (periodFormMode === 'create') {
+    hint.textContent = '새 학년도 생성용 기간 초안입니다. 학년도 적용을 누르면 입력한 기간이 함께 저장됩니다.';
+    return;
+  }
+  if (periodFormMode === 'edit') {
+    hint.textContent = '선택한 학년도의 기간을 수정 중입니다. 기간 저장을 누르면 기간별 통계가 새 기준으로 다시 계산됩니다.';
+    return;
+  }
+  hint.textContent = currentYear
+    ? '기본 상태에서는 읽기 전용입니다. 기간 수정 버튼을 눌러 선택 학년도 기준 기간을 변경할 수 있습니다.'
+    : '선택된 학년도가 없습니다. 학년도를 먼저 생성하거나 선택해 주세요.';
+}
+
 function updateYearSummary() {
   const label = getElement('year-label');
   const academic = getElement('year-academic');
@@ -265,11 +292,15 @@ function updateYearSummary() {
     if (label) label.textContent = '-';
     if (academic) academic.textContent = '-';
     if (range) range.textContent = '-';
+    updatePeriodYearLabel();
+    updatePeriodModeHint();
     return;
   }
   if (label) label.textContent = currentYear.label;
   if (academic) academic.textContent = `${currentYear.academic_year}학년도`;
   if (range) range.textContent = formatDateRange(currentYear.start_date, currentYear.end_date);
+  updatePeriodYearLabel();
+  updatePeriodModeHint();
 }
 
 async function ensureEntriesForMonth(dateObj, { setActive = false } = {}) {
@@ -577,6 +608,7 @@ function setPeriodFormEditable(isEditable, mode = isEditable ? 'edit' : 'view') 
     cancelButton.hidden = !isEditMode;
     cancelButton.disabled = !isEditMode;
   }
+  updatePeriodModeHint();
 }
 
 function resetPeriodDraft() {
