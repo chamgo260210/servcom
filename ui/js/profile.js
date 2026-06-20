@@ -119,6 +119,41 @@ function bindAccountForm() {
   });
 }
 
+function sortMembersForMonitor(users) {
+  return users
+    .filter((u) => u.role === 'MEMBER')
+    .sort((a, b) => Number(b.active) - Number(a.active) || (a.name || '').localeCompare(b.name || '', 'ko'));
+}
+
+function populateMemberSelect(select, members) {
+  if (!select) return null;
+  select.innerHTML = '';
+  members.forEach((member) => {
+    const option = document.createElement('option');
+    option.value = member.id;
+    option.textContent = `${member.name}${member.active ? '' : ' (비활성)'}`;
+    select.appendChild(option);
+  });
+  return members[0]?.id || null;
+}
+
+async function setupMemberScheduleMonitor(onSelect) {
+  const select = document.getElementById('member-schedule-select');
+  if (!select) return null;
+  const users = await apiRequest('/users');
+  const members = sortMembersForMonitor(users);
+  const selectedId = populateMemberSelect(select, members);
+  if (!members.length) {
+    select.disabled = true;
+    const label = document.getElementById('member-schedule-empty');
+    if (label) label.textContent = '조회할 구성원 계정이 없습니다.';
+    return null;
+  }
+  select.addEventListener('change', () => onSelect(select.value));
+  await onSelect(selectedId);
+  return selectedId;
+}
+
 function bindResetButtons(role) {
   const resetCard = document.getElementById('reset-card');
   const stack = resetCard?.querySelector('.stack');
@@ -143,7 +178,7 @@ function bindResetButtons(role) {
   const buttons = document.querySelectorAll('[data-reset-scope]');
   const allowedByRole = {
     MASTER: ['members', 'operators_members', 'visitors_all', 'serials_all', 'all'],
-    OPERATOR: [],
+    OPERATOR: ['members', 'visitors_all', 'serials_all'],
     MEMBER: []
   };
   const confirmTexts = {
@@ -233,7 +268,7 @@ function applyProfileVisibility(role) {
     if (assignmentsCard) assignmentsCard.style.display = '';
   } else if (role === 'OPERATOR') {
     if (visibleUsersCard) visibleUsersCard.style.display = '';
-    if (resetCard) resetCard.style.display = 'none';
+    if (resetCard) resetCard.style.display = '';
     if (assignmentsCard) assignmentsCard.style.display = 'none';
   } else {
     if (visibleUsersCard) visibleUsersCard.style.display = '';
@@ -253,4 +288,4 @@ async function attachProfilePage(user) {
   }
 }
 
-export { attachProfilePage };
+export { attachProfilePage, setupMemberScheduleMonitor };

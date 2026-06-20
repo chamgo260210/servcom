@@ -89,6 +89,31 @@ function pickRelevantWeekStart(assignments = []) {
   return fallback ? getWeekStart(fallback.valid_from) : null;
 }
 
+function renderTodaySchedule(events, targetId = 'today-info') {
+  const todayInfo = document.getElementById(targetId);
+  if (!todayInfo) return;
+  const todayStr = getSeoulTodayKey();
+  const todays = events.filter((ev) => ev.date === todayStr);
+  if (!todays.length) {
+    todayInfo.textContent = '오늘 배정 없음';
+    return;
+  }
+  const times = todays.map((ev) => `${ev.start_time.slice(0, 5)}~${ev.end_time.slice(0, 5)}`);
+  todayInfo.innerHTML = `
+    <div class="today-summary">오늘 ${times.join(', ')} 근무입니다.</div>
+    <div class="today-times">${times.map((time) => `<span class="time-chip">${time}</span>`).join('')}</div>
+  `;
+}
+
+async function loadTodayScheduleForUser(userId, targetId = 'today-info') {
+  const todayStr = getSeoulTodayKey();
+  const params = new URLSearchParams({ start: getWeekStart(todayStr) });
+  if (userId) params.set('user_id', userId);
+  const events = await apiRequest(`/schedule/weekly_view?${params.toString()}`);
+  renderTodaySchedule(events, targetId);
+  return events;
+}
+
 function normalizeEvents(assignments = []) {
   if (!assignments.length) return [];
   if (assignments[0].shift) return assignments;
@@ -320,13 +345,14 @@ function renderCompactSchedule(assignments, targetId = 'schedule-summary', optio
   renderTimeline(assignments, targetId, { hourHeight });
 }
 
-async function loadMySchedule(user) {
+async function loadMySchedule(user, options = {}) {
+  const { targetUserId = user?.id } = options;
   const listEl = document.getElementById('my-schedule');
   if (!listEl) return;
   listEl.classList.add('schedule-list');
   const data = await apiRequest('/schedule/global');
   const assignments = data?.assignments || [];
-  const mine = assignments.filter((assignment) => assignment.user?.id === user?.id);
+  const mine = assignments.filter((assignment) => assignment.user?.id === targetUserId);
   listEl.innerHTML = '';
   if (!mine.length) {
     const li = document.createElement('li');
@@ -357,4 +383,4 @@ async function loadMySchedule(user) {
   });
 }
 
-export { loadBaseSchedule, loadGlobalSchedule, loadMySchedule, renderCompactSchedule };
+export { loadBaseSchedule, loadGlobalSchedule, loadMySchedule, loadTodayScheduleForUser, renderCompactSchedule };

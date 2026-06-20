@@ -121,6 +121,10 @@
           </div>
           <div class="card" id="assignments-card">
             <div class="card-title">내 배정 근무</div>
+            <label class="field-label" id="member-schedule-label" style="display:none;">구성원 선택
+              <select id="member-schedule-select"></select>
+            </label>
+            <div id="member-schedule-empty" class="muted small"></div>
             <ul id="my-schedule"></ul>
           </div>
         </div>
@@ -163,11 +167,15 @@
   <script type="module">
     import { initAppLayout } from '../js/layout.js';
     import { loadMySchedule } from '../js/schedule.js';
-    import { attachProfilePage } from '../js/profile.js';
+    import { attachProfilePage, setupMemberScheduleMonitor } from '../js/profile.js';
 
     const user = await initAppLayout('profile');
     await attachProfilePage(user);
-    if (user?.role !== 'OPERATOR') {
+    if (user?.role === 'MASTER') {
+      const monitorLabel = document.getElementById('member-schedule-label');
+      if (monitorLabel) monitorLabel.style.display = '';
+      await setupMemberScheduleMonitor((memberId) => loadMySchedule(user, { targetUserId: memberId }));
+    } else if (user?.role === 'MEMBER') {
       await loadMySchedule(user);
     }
   </script>

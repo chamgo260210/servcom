@@ -73,6 +73,10 @@
       <div class="grid two">
         <div class="card" id="card-today">
           <div class="card-title">오늘 일정</div>
+          <label class="field-label" id="member-schedule-label" style="display:none;">구성원 선택
+            <select id="member-schedule-select"></select>
+          </label>
+          <div id="member-schedule-empty" class="muted small"></div>
           <div id="today-info" class="muted">불러오는 중...</div>
         </div>
         <div class="card" id="card-pending">
@@ -91,9 +95,10 @@
   </div>
   <script type="module">
     import { apiRequest } from '../js/api.js';
-    import { getSeoulTodayKey, parseDateKeyLocal, formatDateKeyLocal } from '../js/datetime.js';
+    import { getSeoulTodayKey } from '../js/datetime.js';
     import { initAppLayout } from '../js/layout.js';
-    import { loadGlobalSchedule, renderCompactSchedule } from '../js/schedule.js';
+    import { loadGlobalSchedule, loadTodayScheduleForUser, renderCompactSchedule } from '../js/schedule.js';
+    import { setupMemberScheduleMonitor } from '../js/profile.js';
 
     const pendingInsights = document.getElementById('pending-insights');
     const user = await initAppLayout('dashboard');
@@ -110,39 +115,18 @@
 
     if (user?.role === 'MEMBER' && todayCard) {
       try {
-        const todayStr = getSeoulTodayKey();
-        const today = parseDateKeyLocal(todayStr);
-        const dayOffset = (today.getDay() + 6) % 7;
-        const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() - dayOffset);
-        const params = new URLSearchParams({ start: formatDateKeyLocal(weekStart) });
-        if (user?.id) params.set('user_id', user.id);
-        const events = await apiRequest(`/schedule/weekly_view?${params.toString()}`);
-        const todays = events.filter((ev) => ev.date === todayStr);
-        const todayInfo = document.getElementById('today-info');
-        if (!todays.length) {
-          todayInfo.textContent = '오늘 배정 없음';
-        } else {
-          const times = todays.map((ev) => `${ev.start_time.slice(0, 5)}~${ev.end_time.slice(0, 5)}`);
-          todayInfo.innerHTML = `
-            <div class="today-summary">오늘 ${times.join(', ')} 근무입니다.</div>
-            <div class="today-times">${times.map((time) => `<span class="time-chip">${time}</span>`).join('')}</div>
-          `;
-        }
+        await loadTodayScheduleForUser(user?.id);
       } catch {
         document.getElementById('today-info').textContent = '데이터 없음';
       }
     } else if (user?.role === 'MASTER' && todayCard) {
+      const monitorLabel = document.getElementById('member-schedule-label');
+      if (monitorLabel) monitorLabel.style.display = '';
       try {
-        const mine = await apiRequest('/schedule/me');
-        const today = new Date();
-        const todayCount = mine.filter((m) => {
-          const from = m.valid_from ? new Date(m.valid_from) : null;
-          const to = m.valid_to ? new Date(m.valid_to) : null;
-          if (!from) return false;
-          return from <= today && (!to || to >= today);
-        }).length;
-        document.getElementById('today-info').textContent = todayCount ? `${todayCount}개의 배정` : '오늘 배정 없음';
+        await setupMemberScheduleMonitor(async (memberId) => {
+          document.getElementById('today-info').textContent = '불러오는 중...';
+          await loadTodayScheduleForUser(memberId);
+        });
       } catch {
         document.getElementById('today-info').textContent = '데이터 없음';
       }
