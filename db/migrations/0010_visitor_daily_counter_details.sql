@@ -11,6 +11,11 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'uq_visitor_daily_counts_school_year_visit_date'
+    )
+    AND NOT EXISTS (
+        SELECT 1
         FROM visitor_daily_counts
         GROUP BY school_year_id, visit_date
         HAVING COUNT(*) > 1
@@ -19,6 +24,4 @@ BEGIN
             ADD CONSTRAINT uq_visitor_daily_counts_school_year_visit_date
             UNIQUE (school_year_id, visit_date);
     END IF;
-EXCEPTION
-    WHEN duplicate_table THEN NULL;
 END $$;

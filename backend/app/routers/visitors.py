@@ -27,8 +27,8 @@ PERIOD_DEFAULTS = {
 }
 
 MAX_DAILY_VISITORS = 1_000_000
-MAX_COUNTER_VALUE = 1_000_000
 MAX_COUNTER_TOTAL = 100_000_000
+MAX_COUNTER_VALUE = MAX_COUNTER_TOTAL
 
 
 def _today_seoul() -> date:
@@ -131,7 +131,7 @@ def _validate_daily_visitors(value: int | None) -> None:
 def _entry_calculation_source(entry: models.VisitorDailyCount) -> str:
     if all(getattr(entry, field) is not None for field in ("previous_total", "count1", "count2", "current_total")):
         return "COUNTER"
-    return "NONE"
+    return "MANUAL"
 
 
 def _entry_out(entry: models.VisitorDailyCount, creator_name: str | None = None, updater_name: str | None = None) -> schemas.VisitorEntryOut:
@@ -931,16 +931,10 @@ def bulk_upsert_entries(
                 action = "VISITOR_DAILY_UPDATE"
                 delta_visitors = item.daily_visitors - entry.daily_visitors
                 entry.daily_visitors = item.daily_visitors
-                if item.previous_total is not None and item.count1 is not None and item.count2 is not None:
-                    entry.previous_total = item.previous_total
-                    entry.count1 = item.count1
-                    entry.count2 = item.count2
-                    entry.current_total = item.count1 + item.count2
-                else:
-                    entry.previous_total = None
-                    entry.count1 = None
-                    entry.count2 = None
-                    entry.current_total = None
+                entry.previous_total = None
+                entry.count1 = None
+                entry.count2 = None
+                entry.current_total = None
                 entry.updated_by = current_user.id
                 _apply_entry_delta(db, year, item.visit_date, delta_visitors, 0)
             else:
@@ -949,10 +943,10 @@ def bulk_upsert_entries(
                     school_year_id=year.id,
                     visit_date=item.visit_date,
                     daily_visitors=item.daily_visitors,
-                    previous_total=item.previous_total if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
-                    count1=item.count1 if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
-                    count2=item.count2 if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
-                    current_total=(item.count1 + item.count2) if item.previous_total is not None and item.count1 is not None and item.count2 is not None else None,
+                    previous_total=None,
+                    count1=None,
+                    count2=None,
+                    current_total=None,
                     created_by=current_user.id,
                     updated_by=current_user.id,
                 )
