@@ -15,6 +15,9 @@ const uploadMessage = document.getElementById('upload-message');
 let currentUser = null;
 const validationState = new Map();
 let lastUploadValidation = null;
+const visitorYearSelect = document.getElementById('visitor-year-select');
+const visitorYearHint = document.getElementById('visitor-year-hint');
+const exportVisitorsButton = document.getElementById('export-visitors');
 
 function setMessage(target, text, isError = false) {
   if (!target) return;
@@ -30,6 +33,54 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+
+function parseDateInput(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function selectDefaultVisitorYear(years) {
+  const today = new Date();
+  const containingToday = years.find((year) => {
+    const start = parseDateInput(year.start_date);
+    const end = parseDateInput(year.end_date);
+    return start && end && today >= start && today <= end;
+  });
+  return containingToday || [...years].sort((a, b) => (b.academic_year || 0) - (a.academic_year || 0))[0] || null;
+}
+
+async function loadVisitorYearOptions() {
+  if (!visitorYearSelect) return;
+  try {
+    const years = await apiRequest('/visitors/years');
+    visitorYearSelect.innerHTML = '';
+    if (!years.length) {
+      visitorYearSelect.disabled = true;
+      if (exportVisitorsButton) exportVisitorsButton.disabled = true;
+      if (visitorYearHint) visitorYearHint.textContent = '등록된 출입 학년도가 없습니다. 출입 통계 설정에서 학년도를 먼저 생성하세요.';
+      return;
+    }
+    years.forEach((year) => {
+      const option = document.createElement('option');
+      option.value = year.id;
+      option.textContent = year.label || `${year.academic_year}학년도`;
+      visitorYearSelect.appendChild(option);
+    });
+    const selected = selectDefaultVisitorYear(years);
+    if (selected) visitorYearSelect.value = selected.id;
+    visitorYearSelect.disabled = false;
+    if (exportVisitorsButton) exportVisitorsButton.disabled = false;
+    if (visitorYearHint) visitorYearHint.textContent = '다운로드할 출입 학년도를 선택하세요.';
+  } catch (e) {
+    visitorYearSelect.disabled = true;
+    if (exportVisitorsButton) exportVisitorsButton.disabled = true;
+    if (visitorYearHint) visitorYearHint.textContent = e.message || '출입 학년도 목록을 불러오지 못했습니다.';
+  }
 }
 
 function formatSize(size) {
@@ -248,14 +299,14 @@ async function createBackup() {
 }
 
 async function exportVisitors() {
-  const academicYear = document.getElementById('visitor-academic-year')?.value;
-  if (!academicYear) {
-    setMessage(exportMessage, '방문자 학년도를 입력하세요.', true);
+  const yearId = visitorYearSelect?.value;
+  if (!yearId) {
+    setMessage(exportMessage, '다운로드할 학년도를 선택하세요.', true);
     return;
   }
   setMessage(exportMessage, '방문자 Excel 생성 중...');
   try {
-    await downloadFile(`/data/exports/visitors/excel?academic_year=${encodeURIComponent(academicYear)}`);
+    await downloadFile(`/data/exports/visitors/excel?year_id=${encodeURIComponent(yearId)}`);
     setMessage(exportMessage, '방문자 Excel 다운로드를 시작했습니다.');
   } catch (e) {
     setMessage(exportMessage, e.message || 'Excel 다운로드에 실패했습니다.', true);
@@ -404,6 +455,8 @@ backupList?.addEventListener('click', async (event) => {
     button.disabled = false;
   }
 });
+
+await loadVisitorYearOptions();
 
 try {
   await loadBackups();

@@ -925,22 +925,35 @@ def list_restore_jobs(
 
 @router.get("/exports/visitors/excel")
 def export_visitors_excel(
-    academic_year: int = Query(...),
+    year_id: UUID | None = Query(default=None),
+    academic_year: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_role(models.UserRole.OPERATOR)),
 ):
+    if year_id is None and academic_year is None:
+        raise HTTPException(status_code=400, detail="year_id 또는 academic_year가 필요합니다.")
+
+    year_query = db.query(models.VisitorSchoolYear)
+    year = (
+        year_query.filter(models.VisitorSchoolYear.id == year_id).first()
+        if year_id is not None
+        else year_query.filter(models.VisitorSchoolYear.academic_year == academic_year).first()
+    )
+    if not year:
+        raise HTTPException(status_code=404, detail="Visitor academic year not found")
+
     try:
-        path = build_visitors_excel(db, academic_year)
+        path = build_visitors_excel(db, year_id=year.id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Visitor academic year not found") from exc
     record_log(
         db,
         actor_id=str(current_user.id),
         action="DATA_EXPORT_VISITORS_EXCEL",
-        details={"academic_year": academic_year},
+        details={"year_id": str(year.id), "academic_year": year.academic_year},
     )
     db.commit()
-    filename = f"visitors_{academic_year}_report_{date.today().strftime('%Y%m%d')}.xlsx"
+    filename = f"visitors_{year.academic_year}_excel_{date.today().strftime('%Y%m%d')}.xlsx"
     return FileResponse(
         path=path,
         filename=filename,

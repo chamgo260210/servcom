@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
-from sqlalchemy import func
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -38,119 +37,149 @@ def _save_workbook(wb: Workbook) -> Path:
     return path
 
 
-def build_visitors_excel(db: Session, academic_year: int) -> Path:
-    year = (
-        db.query(models.VisitorSchoolYear)
-        .filter(models.VisitorSchoolYear.academic_year == academic_year)
-        .first()
-    )
+def _get_visitor_year(db: Session, academic_year: int | None = None, year_id=None) -> models.VisitorSchoolYear:
+    query = db.query(models.VisitorSchoolYear)
+    if year_id is not None:
+        year = query.filter(models.VisitorSchoolYear.id == year_id).first()
+    elif academic_year is not None:
+        year = query.filter(models.VisitorSchoolYear.academic_year == academic_year).first()
+    else:
+        year = None
     if not year:
         raise ValueError("visitor_year_not_found")
+    return year
+
+
+def build_visitors_excel(db: Session, academic_year: int | None = None, *, year_id=None) -> Path:
+    year = _get_visitor_year(db, academic_year=academic_year, year_id=year_id)
 
     wb = Workbook()
-    wb.remove(wb.active)
+    ws = wb.active
+    ws.title = str(year.academic_year)
 
-    year_stat = (
-        db.query(models.VisitorYearStat)
-        .filter(models.VisitorYearStat.school_year_id == year.id)
-        .first()
-    )
-    entry_totals = (
-        db.query(
-            func.coalesce(func.sum(models.VisitorDailyCount.daily_visitors), 0),
-            func.count(models.VisitorDailyCount.id),
-        )
-        .filter(models.VisitorDailyCount.school_year_id == year.id)
-        .first()
-    )
-    total_visitors = year_stat.total_visitors if year_stat else int(entry_totals[0] or 0)
-    open_days = year_stat.open_days if year_stat else int(entry_totals[1] or 0)
+    # Legacy worksheet shape: A1:M36 contains the year calendar, O:R contains the
+    # counter continuation helper used by the former Excel workflow.
+    ws.merge_cells("A1:M1")
+    ws["A1"] = f"{year.academic_year}학년도 참고열람실 출입자 통계"
+    ws["A1"].font = Font(bold=True, size=16)
+    ws["A1"].alignment = Alignment(horizontal="center")
 
-    _append_sheet(
-        wb,
-        "요약",
-        ["항목", "값"],
-        [
-            ["학년도", year.academic_year],
-            ["라벨", year.label],
-            ["시작일", year.start_date.isoformat()],
-            ["종료일", year.end_date.isoformat()],
-            ["총 방문자", total_visitors],
-            ["개방일수", open_days],
-        ],
-    )
+    months = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2]
+    month_columns = {month: index + 2 for index, month in enumerate(months)}
+    header_fill = PatternFill("solid", fgColor="E5E7EB")
+    thin = Side(style="thin", color="D1D5DB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center")
+
+    for index, month in enumerate(months, start=2):
+        cell = ws.cell(row=3, column=index, value=f"{month}월")
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+
+    for day in range(1, 32):
+        cell = ws.cell(row=day + 3, column=1, value=f"{day}일")
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+        for column in range(2, 14):
+            data_cell = ws.cell(row=day + 3, column=column)
+            data_cell.border = border
+            data_cell.alignment = center
+            data_cell.number_format = "#,##0"
 
     entries = (
         db.query(models.VisitorDailyCount)
         .filter(models.VisitorDailyCount.school_year_id == year.id)
-        .order_by(models.VisitorDailyCount.visit_date.asc())
         .all()
     )
-    _append_sheet(
-        wb,
-        "일별",
-        ["일자", "방문자 수", "생성자", "수정자", "생성일", "수정일"],
-        [
-            [
-                entry.visit_date.isoformat(),
-                entry.daily_visitors,
-                str(entry.created_by) if entry.created_by else "",
-                str(entry.updated_by) if entry.updated_by else "",
-                entry.created_at.isoformat() if entry.created_at else "",
-                entry.updated_at.isoformat() if entry.updated_at else "",
-            ]
-            for entry in entries
-        ],
-    )
+    for entry in entries:
+        visit_date = entry.visit_date
+        if visit_date.month not in month_columns:
+            continue
+        expected_year = year.academic_year if visit_date.month >= 3 else year.academic_year + 1
+        if visit_date.year != expected_year or not (1 <= visit_date.day <= 31):
+            continue
+        ws.cell(row=visit_date.day + 3, column=month_columns[visit_date.month], value=entry.daily_visitors)
 
-    monthly = (
-        db.query(models.VisitorMonthlyStat)
-        .filter(models.VisitorMonthlyStat.school_year_id == year.id)
-        .order_by(models.VisitorMonthlyStat.year.asc(), models.VisitorMonthlyStat.month.asc())
-        .all()
-    )
-    _append_sheet(
-        wb,
-        "월별",
-        ["연도", "월", "총 방문자", "개방일수"],
-        [[row.year, row.month, row.total_visitors, row.open_days] for row in monthly],
-    )
+    for column in range(2, 14):
+        total_cell = ws.cell(row=35, column=column, value=f"=SUM({get_column_letter(column)}4:{get_column_letter(column)}34)")
+        open_cell = ws.cell(row=36, column=column, value=f"=COUNT({get_column_letter(column)}4:{get_column_letter(column)}34)")
+        for cell in (total_cell, open_cell):
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+            cell.border = border
+            cell.alignment = center
+            cell.number_format = "#,##0"
+    ws["A35"] = "합계"
+    ws["A36"] = "개관일수"
+    for cell_ref in ("A35", "A36"):
+        ws[cell_ref].font = Font(bold=True)
+        ws[cell_ref].fill = header_fill
+        ws[cell_ref].border = border
+        ws[cell_ref].alignment = center
 
-    period_rows = (
-        db.query(models.VisitorPeriod, models.VisitorPeriodStat)
-        .outerjoin(
-            models.VisitorPeriodStat,
-            models.VisitorPeriodStat.period_id == models.VisitorPeriod.id,
+    running = (
+        db.query(models.VisitorRunningTotal)
+        .filter(models.VisitorRunningTotal.school_year_id == year.id)
+        .first()
+    )
+    next_previous_total = running.previous_total if running and running.previous_total is not None else None
+    if next_previous_total is None:
+        latest_with_current = (
+            db.query(models.VisitorDailyCount)
+            .filter(
+                models.VisitorDailyCount.school_year_id == year.id,
+                models.VisitorDailyCount.current_total.isnot(None),
+            )
+            .order_by(models.VisitorDailyCount.visit_date.desc())
+            .first()
         )
-        .filter(models.VisitorPeriod.school_year_id == year.id)
-        .order_by(models.VisitorPeriod.period_type.asc())
-        .all()
-    )
-    _append_sheet(
-        wb,
-        "기간별",
-        ["기간 유형", "이름", "시작일", "종료일", "총 방문자", "개방일수"],
-        [
-            [
-                period.period_type.value,
-                period.name,
-                period.start_date.isoformat() if period.start_date else "",
-                period.end_date.isoformat() if period.end_date else "",
-                stat.total_visitors if stat else 0,
-                stat.open_days if stat else 0,
-            ]
-            for period, stat in period_rows
-        ],
-    )
+        if latest_with_current:
+            next_previous_total = latest_with_current.current_total
 
-    _append_sheet(
-        wb,
-        "연간",
-        ["학년도", "총 방문자", "개방일수"],
-        [[year.academic_year, total_visitors, open_days]],
-    )
+    helper_headers = {
+        "O3": "전일 합",
+        "O6": "Count1",
+        "P6": "Count2",
+        "Q6": "금일 합",
+        "R6": "금일 출입자",
+    }
+    for cell_ref, value in helper_headers.items():
+        cell = ws[cell_ref]
+        cell.value = value
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = center
+        cell.border = border
+    ws["O4"] = next_previous_total
+    ws["Q7"] = "=O7+P7"
+    ws["R7"] = '=IF(OR(Q7="",O4=""),"",Q7-O4)'
+    for row in range(4, 8):
+        for column in range(15, 19):
+            cell = ws.cell(row=row, column=column)
+            cell.border = border
+            cell.alignment = center
+            cell.number_format = "#,##0"
+
+    widths = {
+        "A": 10,
+        **{get_column_letter(column): 11 for column in range(2, 14)},
+        "N": 3,
+        "O": 13,
+        "P": 13,
+        "Q": 13,
+        "R": 15,
+    }
+    for column, width in widths.items():
+        ws.column_dimensions[column].width = width
+    for row in range(1, 37):
+        ws.row_dimensions[row].height = 20
+
+    ws.freeze_panes = "B4"
     return _save_workbook(wb)
-
 
 def build_serials_excel(db: Session) -> Path:
     wb = Workbook()

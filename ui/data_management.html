@@ -87,8 +87,9 @@
         <section class="card">
           <div class="card-title">Excel 추출</div>
           <div class="stack">
-            <label for="visitor-academic-year">방문자 학년도</label>
-            <input id="visitor-academic-year" type="number" min="2000" max="2100" placeholder="2026" />
+            <label for="visitor-year-select">방문자 학년도</label>
+            <select id="visitor-year-select"></select>
+              <div class="muted" id="visitor-year-hint"></div>
             <div class="actions">
               <button class="btn" id="export-visitors" type="button">방문자 Excel</button>
               <button class="btn secondary" id="export-serials" type="button">연속간행물 Excel</button>

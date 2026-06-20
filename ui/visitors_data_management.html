@@ -62,8 +62,9 @@
           <div class="card-title">Excel 다운로드</div>
           <div class="stack">
             <div class="form-row">
-              <label for="visitor-academic-year">학년도</label>
-              <input id="visitor-academic-year" type="number" min="2000" max="2100" placeholder="2026" />
+              <label for="visitor-year-select">학년도</label>
+              <select id="visitor-year-select"></select>
+              <div class="muted" id="visitor-year-hint"></div>
             </div>
             <button class="btn secondary" id="export-excel" type="button">방문자 통계 Excel</button>
             <div id="excel-message" class="form-message" role="alert" aria-live="polite"></div>
