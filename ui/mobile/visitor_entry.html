@@ -75,7 +75,7 @@
     <main class="mobile-content">
       <section class="card" id="entry">
         <div class="card-title">일일 방문자 입력</div>
-        <div id="entry-hint" class="muted">전일 합산을 불러오거나 입력한 뒤 Count를 입력하면 금일 합산과 출입자를 계산합니다. 기록 저장 시 금일 합산이 다음 전일 합산으로 저장됩니다.</div>
+        <div id="entry-hint" class="muted">전일 합을 불러오거나 입력한 뒤 Count를 입력하면 금일 합과 출입자를 계산합니다. 기록 저장 시 금일 합이 다음 전일 합으로 저장됩니다.</div>
         <div id="entry-message" class="form-message" role="alert" aria-live="polite"></div>
         <div class="inline-form">
           <div class="form-row">
@@ -91,9 +91,9 @@
             <input id="count2" type="number" min="0" value="0" />
           </div>
           <div class="form-row">
-            <label for="prev-total">전일 합산</label>
+            <label for="prev-total">전일 합</label>
             <div class="inline-input">
-              <input id="prev-total" type="number" min="0" placeholder="전일 합산 입력" />
+              <input id="prev-total" type="number" min="0" placeholder="전일 합 입력" />
               <button class="btn tiny secondary" id="load-prev-total" type="button">불러오기</button>
             </div>
           </div>
@@ -103,11 +103,11 @@
         </div>
         <div class="helper-grid" id="entry-preview">
           <div class="helper-item">
-            <div class="muted">전일 합산</div>
+            <div class="muted">전일 합</div>
             <strong id="preview-prev-total">-</strong>
           </div>
           <div class="helper-item">
-            <div class="muted">금일 합산</div>
+            <div class="muted">금일 합</div>
             <strong id="preview-total">-</strong>
           </div>
           <div class="helper-item">
@@ -119,6 +119,7 @@
             <strong id="preview-updater">-</strong>
           </div>
         </div>
+        <p class="muted">저장 후 금일 합이 다음 입력의 전일 합 기준값으로 사용됩니다.</p>
       </section>
 
       <section class="card" id="today-entry-card">
@@ -130,8 +131,28 @@
             <strong id="today-entry-date">-</strong>
           </div>
           <div class="helper-item">
+            <div class="muted">전일 합</div>
+            <strong id="today-entry-prev-total">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">Count 1</div>
+            <strong id="today-entry-count1">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">Count 2</div>
+            <strong id="today-entry-count2">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">금일 합</div>
+            <strong id="today-entry-current-total">-</strong>
+          </div>
+          <div class="helper-item">
             <div class="muted">금일 출입자</div>
             <strong id="today-entry-visitors">-</strong>
+          </div>
+          <div class="helper-item">
+            <div class="muted">계산 원본</div>
+            <strong id="today-entry-source">-</strong>
           </div>
           <div class="helper-item">
             <div class="muted">최근 수정자</div>

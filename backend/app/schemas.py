@@ -552,13 +552,18 @@ class VisitorPeriodOut(BaseModel):
 
 class VisitorEntryCreate(BaseModel):
     visit_date: date
-    daily_visitors: int
-    previous_total: int | None = None
+    previous_total: int
+    count1: int
+    count2: int
+    daily_visitors: int | None = None
 
 
 class VisitorBulkEntryItem(BaseModel):
     visit_date: date
     daily_visitors: int
+    previous_total: int | None = None
+    count1: int | None = None
+    count2: int | None = None
 
 
 class VisitorBulkEntryRequest(BaseModel):
@@ -572,6 +577,11 @@ class VisitorEntryOut(BaseModel):
     school_year_id: UUID
     visit_date: date
     daily_visitors: int
+    previous_total: int | None = None
+    count1: int | None = None
+    count2: int | None = None
+    current_total: int | None = None
+    calculation_source: str | None = None
     created_by: UUID | None = None
     updated_by: UUID | None = None
     created_by_name: str | None = None
