@@ -4,7 +4,8 @@ const API_BASE_URL = (() => {
   if (configured) return configured.replace(/\/$/, '');
   return '/api';
 })();
-const SESSION_EXPIRED_MESSAGE = '세션이 만료되었거나 다른 위치에서 로그인되어 다시 로그인이 필요합니다.';
+const SESSION_EXPIRED_MESSAGE = '다른 위치에서 로그인되어 현재 세션이 종료되었습니다. 계속 사용하려면 다시 로그인해 주세요.';
+const SESSION_CHECK_THROTTLE_MS = 60_000;
 
 function parseTokenExp(token) {
   if (!token) return null;
@@ -51,12 +52,22 @@ function clearToken() {
 }
 
 let sessionExpiredModalShown = false;
+let sessionBlocked = false;
+let lastSessionCheckAt = 0;
+let lastSuccessfulApiAt = 0;
+
+function isSessionBlocked() {
+  return sessionBlocked;
+}
+
+function markSuccessfulApi() {
+  lastSuccessfulApiAt = Date.now();
+}
 
 function showSessionExpiredModal(message = SESSION_EXPIRED_MESSAGE) {
+  sessionBlocked = true;
   if (sessionExpiredModalShown) return;
   sessionExpiredModalShown = true;
-
-  clearToken();
 
   const existing = document.getElementById('session-expired-modal');
   if (existing) existing.remove();
@@ -71,7 +82,6 @@ function showSessionExpiredModal(message = SESSION_EXPIRED_MESSAGE) {
       </div>
       <div class="modal-body">
         <p>${message}</p>
-        <p class="muted small">계속 사용하려면 다시 로그인해 주세요.</p>
       </div>
       <div class="modal-footer">
         <button class="btn" id="session-expired-confirm" type="button">확인</button>
@@ -82,6 +92,7 @@ function showSessionExpiredModal(message = SESSION_EXPIRED_MESSAGE) {
   document.body.appendChild(modal);
 
   const goLogin = () => {
+    sessionStorage.removeItem('auth_logout_reason');
     window.location.replace(buildLoginUrl());
   };
 
@@ -93,6 +104,48 @@ function showSessionExpiredModal(message = SESSION_EXPIRED_MESSAGE) {
   modal.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') goLogin();
   });
+}
+
+async function checkSessionAlive({ force = false } = {}) {
+  if (sessionBlocked) {
+    showSessionExpiredModal();
+    return false;
+  }
+
+  const token = getToken();
+  if (!token) {
+    showSessionExpiredModal();
+    return false;
+  }
+
+  const now = Date.now();
+  const lastKnownAliveAt = Math.max(lastSessionCheckAt, lastSuccessfulApiAt);
+  if (!force && lastKnownAliveAt && now - lastKnownAliveAt < SESSION_CHECK_THROTTLE_MS) {
+    return true;
+  }
+
+  lastSessionCheckAt = now;
+  const requestMe = async (accessToken) => fetch(`${API_BASE_URL}/auth/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store'
+  });
+
+  try {
+    let resp = await requestMe(token);
+    if (resp.status === 401) {
+      const refreshed = await refreshToken();
+      if (refreshed) resp = await requestMe(refreshed);
+    }
+    if (resp.ok) {
+      markSuccessfulApi();
+      return true;
+    }
+  } catch (e) {
+    console.warn('Session check failed', e);
+  }
+
+  showSessionExpiredModal();
+  return false;
 }
 
 async function refreshToken() {
@@ -109,7 +162,12 @@ async function refreshToken() {
 }
 
 async function apiRequest(path, options = {}) {
-  const { responseType, ...requestOptions } = options;
+  if (sessionBlocked) {
+    showSessionExpiredModal();
+    return;
+  }
+
+  const { responseType, __noRetry, ...requestOptions } = options;
   const headers = options.headers ? { ...options.headers } : {};
   let token = getToken();
   const exp = parseInt(localStorage.getItem('token_exp') || '0', 10);
@@ -117,7 +175,7 @@ async function apiRequest(path, options = {}) {
     try {
       token = await refreshToken();
     } catch (e) {
-      showSessionExpiredModal(SESSION_EXPIRED_MESSAGE);
+      showSessionExpiredModal();
       return;
     }
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -126,21 +184,19 @@ async function apiRequest(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
   let resp = await fetch(`${API_BASE_URL}${path}`, { ...requestOptions, headers });
-  if (resp.status === 401 && !options.__noRetry && token) {
+  if (resp.status === 401 && !__noRetry && token) {
     try {
       const newToken = await refreshToken();
       if (newToken) {
         const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
-        const retryOptions = { ...requestOptions, headers: retryHeaders };
-        retryOptions.__noRetry = true;
-        resp = await fetch(`${API_BASE_URL}${path}`, retryOptions);
+        resp = await fetch(`${API_BASE_URL}${path}`, { ...requestOptions, headers: retryHeaders });
       }
     } catch (e) {
-      // fall through to redirect
+      // 최종 401 처리에서 세션 만료 모달을 표시한다.
     }
   }
   if (resp.status === 401) {
-    showSessionExpiredModal(SESSION_EXPIRED_MESSAGE);
+    showSessionExpiredModal();
     return;
   }
   if (!resp.ok) {
@@ -156,9 +212,21 @@ async function apiRequest(path, options = {}) {
     }
     throw new Error(message);
   }
+  markSuccessfulApi();
   if (resp.status === 204) return null;
   if (responseType === 'blob') return resp;
   return await resp.json();
 }
 
-export { API_BASE_URL, apiRequest, getToken, clearToken, redirectToLogin, setToken, parseTokenExp };
+export {
+  API_BASE_URL,
+  apiRequest,
+  getToken,
+  clearToken,
+  redirectToLogin,
+  setToken,
+  parseTokenExp,
+  showSessionExpiredModal,
+  isSessionBlocked,
+  checkSessionAlive
+};

@@ -1,7 +1,7 @@
 // File: /ui/js/layout.js
 import { loadUser, logout, startSessionCountdown, refreshSession, shouldShowPasswordUpdatePrompt, snoozePasswordUpdate } from './auth.js';
 import { checkSystemStatus } from './status.js';
-import { API_BASE_URL } from './api.js';
+import { API_BASE_URL, checkSessionAlive, isSessionBlocked, showSessionExpiredModal } from './api.js';
 import { initNotifications } from './notifications.js';
 import { initNoticeOverlays } from './notices.js';
 
@@ -230,6 +230,74 @@ if (!globalThis.__worktimeLayout) {
     });
   }
 
+  function isLoginPageUrl(url) {
+    const path = url.pathname.split('/').pop() || '';
+    return path === 'index.html' || path === '';
+  }
+
+  function decodeJwtPayload(token) {
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    try {
+      const base = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base.padEnd(Math.ceil(base.length / 4) * 4, '=');
+      return JSON.parse(atob(padded));
+    } catch (e) {
+      console.warn('Failed to decode token payload', e);
+      return null;
+    }
+  }
+
+  function sessionKey(token) {
+    const payload = decodeJwtPayload(token);
+    if (!payload) return null;
+    return `${payload.sub || ''}:${payload.session_version ?? ''}`;
+  }
+
+  function shouldGuardLink(link, event) {
+    if (!link || link.dataset.returnTarget !== undefined) return false;
+    if (event.defaultPrevented || event.button !== 0) return false;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+    if (link.target && link.target !== '_self') return false;
+    if (link.hasAttribute('download')) return false;
+    const href = link.getAttribute('href') || '';
+    if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return false;
+    const url = new URL(href, window.location.href);
+    if (url.origin !== window.location.origin) return false;
+    if (isLoginPageUrl(url)) return false;
+    if (url.pathname === window.location.pathname && url.hash) return false;
+    return true;
+  }
+
+  function initSessionInvalidationHandlers() {
+    if (globalThis.__worktimeSessionGuardReady) return;
+    globalThis.__worktimeSessionGuardReady = true;
+
+    document.addEventListener('click', async (event) => {
+      const link = event.target?.closest?.('a[href]');
+      if (!shouldGuardLink(link, event)) return;
+      event.preventDefault();
+      if (isSessionBlocked()) {
+        showSessionExpiredModal();
+        return;
+      }
+      const alive = await checkSessionAlive();
+      if (!alive) return;
+      window.location.href = link.href;
+    }, true);
+
+    window.addEventListener('storage', (event) => {
+      if (event.key !== 'token') return;
+      if (isLoginPageUrl(new URL(window.location.href))) return;
+      if (!event.oldValue || !event.newValue || event.oldValue === event.newValue) return;
+      const oldKey = sessionKey(event.oldValue);
+      const newKey = sessionKey(event.newValue);
+      if (oldKey && newKey && oldKey === newKey) return;
+      showSessionExpiredModal();
+    });
+  }
+
   function isPageAllowed(activePage, role) {
     const activeLink = document.querySelector(`.nav-link[data-page="${activePage}"]`);
     if (!activeLink) return true;
@@ -287,7 +355,6 @@ if (!globalThis.__worktimeLayout) {
   function wireCommonActions(activePage) {
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) logoutBtn.onclick = () => logout(true);
-    const home = document.querySelector('.logo, .mobile-brand');
     const inHtml = window.location.pathname.includes('/html/') || window.location.pathname.includes('/mobile/');
     const html = (file) => (inHtml ? file : `html/${file}`);
     let homeTarget = document.body?.dataset?.home || html('dashboard.html');
@@ -298,10 +365,18 @@ if (!globalThis.__worktimeLayout) {
     } else if (!document.body?.dataset?.home) {
       homeTarget = html('dashboard.html');
     }
-    if (home) {
-      home.style.cursor = 'pointer';
-      home.addEventListener('click', () => { window.location.href = homeTarget; });
-    }
+    document.querySelectorAll('.logo, .mobile-brand').forEach((brand) => {
+      brand.style.cursor = 'pointer';
+      brand.addEventListener('click', async () => {
+        if (isSessionBlocked()) {
+          showSessionExpiredModal();
+          return;
+        }
+        const alive = await checkSessionAlive();
+        if (!alive) return;
+        window.location.href = homeTarget;
+      });
+    });
     document.querySelectorAll('[data-return-target]').forEach((link) => {
       link.addEventListener('click', (event) => {
         event.preventDefault();
@@ -318,6 +393,7 @@ if (!globalThis.__worktimeLayout) {
 
   async function initAppLayout(activePage) {
     initThemeToggle();
+    initSessionInvalidationHandlers();
     showAppShellLoader();
     ensureDataManagementNavLink(activePage);
     applyCurrentPageLabel(activePage);
@@ -335,11 +411,13 @@ if (!globalThis.__worktimeLayout) {
           return user;
         }
       } else {
+        if (isSessionBlocked()) return null;
         logout(true);
         return null;
       }
     } catch (e) {
       console.error('사용자 정보를 불러오지 못했습니다.', e);
+      if (isSessionBlocked()) return null;
       logout(true);
       return null;
     }
