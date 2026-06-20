@@ -84,7 +84,8 @@ const uploadMessage = document.getElementById('upload-message');
 const excelSection = document.getElementById('excel-section');
 const excelButton = document.getElementById('export-excel');
 const excelMessage = document.getElementById('excel-message');
-const yearInput = document.getElementById('visitor-academic-year');
+const yearSelect = document.getElementById('visitor-year-select');
+const yearHint = document.getElementById('visitor-year-hint');
 const domainTitle = document.getElementById('domain-title');
 const domainSubtitle = document.getElementById('domain-subtitle');
 const storageBackupList = document.getElementById('storage-backup-list');
@@ -104,6 +105,54 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+
+function parseDateInput(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function selectDefaultVisitorYear(years) {
+  const today = new Date();
+  const containingToday = years.find((year) => {
+    const start = parseDateInput(year.start_date);
+    const end = parseDateInput(year.end_date);
+    return start && end && today >= start && today <= end;
+  });
+  return containingToday || [...years].sort((a, b) => (b.academic_year || 0) - (a.academic_year || 0))[0] || null;
+}
+
+async function loadVisitorYearOptions() {
+  if (domain !== 'VISITORS' || !yearSelect) return;
+  try {
+    const years = await apiRequest('/visitors/years');
+    yearSelect.innerHTML = '';
+    if (!years.length) {
+      yearSelect.disabled = true;
+      if (excelButton) excelButton.disabled = true;
+      if (yearHint) yearHint.textContent = '등록된 출입 학년도가 없습니다. 출입 통계 설정에서 학년도를 먼저 생성하세요.';
+      return;
+    }
+    years.forEach((year) => {
+      const option = document.createElement('option');
+      option.value = year.id;
+      option.textContent = year.label || `${year.academic_year}학년도`;
+      yearSelect.appendChild(option);
+    });
+    const selected = selectDefaultVisitorYear(years);
+    if (selected) yearSelect.value = selected.id;
+    yearSelect.disabled = false;
+    if (excelButton) excelButton.disabled = false;
+    if (yearHint) yearHint.textContent = '다운로드할 출입 학년도를 선택하세요.';
+  } catch (e) {
+    yearSelect.disabled = true;
+    if (excelButton) excelButton.disabled = true;
+    if (yearHint) yearHint.textContent = e.message || '출입 학년도 목록을 불러오지 못했습니다.';
+  }
 }
 
 function formatSize(size) {
@@ -594,12 +643,12 @@ async function exportExcel() {
   if (!config.canExcel || !config.excelPath) return;
   let path = config.excelPath;
   if (domain === 'VISITORS') {
-    const academicYear = yearInput?.value;
-    if (!academicYear) {
-      setMessage(excelMessage, '학년도를 입력하세요.', true);
+    const yearId = yearSelect?.value;
+    if (!yearId) {
+      setMessage(excelMessage, '다운로드할 학년도를 선택하세요.', true);
       return;
     }
-    path = `${path}?academic_year=${encodeURIComponent(academicYear)}`;
+    path = `${path}?year_id=${encodeURIComponent(yearId)}`;
   }
   setMessage(excelMessage, 'Excel 생성 중...');
   try {
@@ -817,7 +866,9 @@ const createBackupButton = document.getElementById('create-backup');
 if (createBackupButton && config.createLabel) createBackupButton.textContent = config.createLabel;
 if (uploadSection) uploadSection.style.display = config.canUpload ? '' : 'none';
 if (excelSection) excelSection.style.display = config.canExcel ? '' : 'none';
-if (yearInput) yearInput.closest('.form-row')?.classList.toggle('hidden', domain !== 'VISITORS');
+if (yearSelect) yearSelect.closest('.form-row')?.classList.toggle('hidden', domain !== 'VISITORS');
+
+await loadVisitorYearOptions();
 
 try {
   await loadBackups();
