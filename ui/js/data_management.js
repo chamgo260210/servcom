@@ -22,6 +22,16 @@ function setMessage(target, text, isError = false) {
   target.classList.toggle('error', isError);
 }
 
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function formatSize(size) {
   if (!size) return '-';
   if (size < 1024) return `${size} B`;
@@ -115,24 +125,90 @@ function renderUploadValidation(result) {
   }
 }
 
-function renderRestoreJobs(jobs) {
-  if (!restoreList) return;
+function restoreJobIsAfterCutoff(job, cutoffAt) {
+  if (!cutoffAt) return true;
+  const cutoffTime = new Date(cutoffAt).getTime();
+  if (Number.isNaN(cutoffTime)) return true;
+  return [job.started_at, job.finished_at]
+    .filter(Boolean)
+    .some((value) => {
+      const jobTime = new Date(value).getTime();
+      return !Number.isNaN(jobTime) && jobTime >= cutoffTime;
+    });
+}
+
+function ensureRestoreHistoryArchiveList() {
+  const table = restoreList?.closest('table');
+  const tableWrap = restoreList?.closest('.table-wrap');
+  const section = tableWrap?.parentElement;
+  if (!table || !tableWrap || !section) return null;
+  let note = document.getElementById('restore-history-cutoff-note');
+  if (!note) {
+    note = document.createElement('div');
+    note.id = 'restore-history-cutoff-note';
+    note.className = 'form-message show';
+    section.insertBefore(note, tableWrap);
+  }
+  let details = document.getElementById('restore-history-archive');
+  if (!details) {
+    details = document.createElement('details');
+    details.id = 'restore-history-archive';
+    const summary = document.createElement('summary');
+    summary.id = 'restore-history-archive-summary';
+    details.appendChild(summary);
+    const archiveWrap = document.createElement('div');
+    archiveWrap.className = 'table-wrap';
+    const archiveTable = table.cloneNode(true);
+    archiveTable.querySelector('tbody')?.setAttribute('id', 'restore-archive-list');
+    archiveWrap.appendChild(archiveTable);
+    details.appendChild(archiveWrap);
+    section.insertBefore(details, tableWrap.nextSibling);
+  }
+  return {
+    note,
+    details,
+    summary: document.getElementById('restore-history-archive-summary'),
+    archiveList: document.getElementById('restore-archive-list'),
+  };
+}
+
+function appendRestoreRows(target, jobs, { archived = false, emptyText = '복원 이력이 없습니다.' } = {}) {
+  if (!target) return;
   if (!jobs.length) {
-    restoreList.innerHTML = '<tr><td colspan="5" class="muted">복원 이력이 없습니다.</td></tr>';
+    target.innerHTML = `<tr><td colspan="5" class="muted">${escapeHtml(emptyText)}</td></tr>`;
     return;
   }
-  restoreList.innerHTML = '';
+  target.innerHTML = '';
   jobs.forEach((job) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${job.domain}</td>
-      <td>${job.mode}</td>
-      <td>${job.status}</td>
+      <td>${escapeHtml(job.domain)}${archived ? '<div><span class="badge pending">초기화 이전</span></div>' : ''}</td>
+      <td>${escapeHtml(job.mode)}</td>
+      <td>${escapeHtml(job.status)}</td>
       <td>${job.started_at ? formatDateTimeSeoul(job.started_at) : '-'}</td>
       <td>${job.finished_at ? formatDateTimeSeoul(job.finished_at) : '-'}</td>
     `;
-    restoreList.appendChild(tr);
+    target.appendChild(tr);
   });
+}
+
+function renderRestoreJobs(jobs, cutoff = null) {
+  if (!restoreList) return;
+  const controls = ensureRestoreHistoryArchiveList();
+  const cutoffAt = cutoff?.latest_reset_at || null;
+  const visibleJobs = cutoffAt ? jobs.filter((job) => restoreJobIsAfterCutoff(job, cutoffAt)) : jobs;
+  const archivedJobs = cutoffAt ? jobs.filter((job) => !restoreJobIsAfterCutoff(job, cutoffAt)) : [];
+  if (controls?.note) {
+    controls.note.innerHTML = cutoffAt
+      ? `기본 표시: 최근 전체 초기화 이후 복원 이력<br>초기화 기준: ${escapeHtml(formatDateTimeSeoul(cutoffAt))} · 시스템 전체 초기화`
+      : '기본 표시: 전체 복원 이력<br>아직 초기화 기준점이 없습니다.';
+  }
+  appendRestoreRows(restoreList, visibleJobs, { emptyText: cutoffAt ? '최근 전체 초기화 이후 복원 이력이 없습니다.' : '복원 이력이 없습니다.' });
+  if (controls?.details && controls?.summary && controls?.archiveList) {
+    controls.details.style.display = cutoffAt ? '' : 'none';
+    controls.summary.textContent = `초기화 이전 복원 이력 ${archivedJobs.length}건 보기`;
+    appendRestoreRows(controls.archiveList, archivedJobs, { archived: true, emptyText: '초기화 이전 복원 이력이 없습니다.' });
+  }
 }
 
 async function loadBackups() {
@@ -143,8 +219,11 @@ async function loadBackups() {
 async function loadRestoreJobs() {
   if (currentUser?.role !== 'MASTER') return;
   if (restoreHistoryCard) restoreHistoryCard.style.display = '';
-  const jobs = await apiRequest('/data/restores');
-  renderRestoreJobs(jobs);
+  const [jobs, cutoff] = await Promise.all([
+    apiRequest('/data/restores'),
+    apiRequest('/data/restores/reset-cutoff?domain=FULL'),
+  ]);
+  renderRestoreJobs(jobs, cutoff);
 }
 
 async function createBackup() {
