@@ -152,8 +152,24 @@ def _delete_domain_models(db: Session, reset_models: tuple[type[models.Base], ..
 
 
 @router.post("/reset", response_model=dict)
-def reset_data(payload: schemas.ResetRequest, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.MASTER))):
+def reset_data(payload: schemas.ResetRequest, db: Session = Depends(get_db), current=Depends(require_role(models.UserRole.OPERATOR))):
     scope = payload.scope
+    allowed_scopes_by_role = {
+        models.UserRole.MASTER: {
+            schemas.ResetScope.MEMBERS,
+            schemas.ResetScope.OPERATORS_AND_MEMBERS,
+            schemas.ResetScope.VISITORS_ALL,
+            schemas.ResetScope.SERIALS_ALL,
+            schemas.ResetScope.ALL,
+        },
+        models.UserRole.OPERATOR: {
+            schemas.ResetScope.MEMBERS,
+            schemas.ResetScope.VISITORS_ALL,
+            schemas.ResetScope.SERIALS_ALL,
+        },
+    }
+    if scope not in allowed_scopes_by_role.get(current.role, set()):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="이 초기화 범위를 실행할 권한이 없습니다.")
     expected_confirm_text = schemas.RESET_CONFIRM_TEXT[scope]
     if payload.confirm_text != expected_confirm_text:
         raise HTTPException(status_code=400, detail=f"확인 문구를 정확히 입력하세요: {expected_confirm_text}")
