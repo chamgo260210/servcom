@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
+from urllib.parse import quote
 
 from .. import models, schemas
 from ..core.audit import record_log
@@ -953,11 +954,14 @@ def export_visitors_excel(
         details={"year_id": str(year.id), "academic_year": year.academic_year},
     )
     db.commit()
-    filename = f"visitors_{year.academic_year}_excel_{date.today().strftime('%Y%m%d')}.xlsx"
+    filename = f"{year.academic_year}학년도 참고열람실 출입자 통계.xlsx"
+    encoded_filename = quote(filename)
     return FileResponse(
         path=path,
-        filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        },
         background=BackgroundTask(lambda: path.unlink(missing_ok=True)),
     )
 
