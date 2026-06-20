@@ -109,9 +109,15 @@
         </div>
       </section>
 
-      <section class="card">
-        <div class="card-title">학기/방학 기간 설정</div>
-        <p class="muted">학기/방학 기간을 수정하면 기존 일일 방문자 입력값은 유지되고, 기간별 통계만 새 기준으로 재계산됩니다.</p>
+      <section class="card visitor-period-management">
+        <div class="card-title">선택 학년도 학기/방학 기간 관리</div>
+        <p class="muted">선택한 학년도의 학기/방학 기준 기간입니다.</p>
+        <p class="muted">기간을 수정하면 기존 일일 방문자 입력값은 유지되고, 기간별 통계만 새 기준으로 다시 계산됩니다.</p>
+        <div class="helper-item period-target-summary">
+          <div class="muted">현재 편집 대상</div>
+          <strong id="visitor-period-year-label">현재 편집 대상: 선택된 학년도가 없습니다.</strong>
+        </div>
+        <p class="muted" id="visitor-period-mode-hint">기본 상태에서는 읽기 전용입니다. 기간 수정 버튼을 눌러 선택 학년도 기준 기간을 변경할 수 있습니다.</p>
         <div class="inline-form" id="period-form">
           <div class="form-row">
             <label>1학기</label>
@@ -140,7 +146,7 @@
             <button class="btn secondary" id="cancel-period-edit" type="button" hidden disabled>수정 취소</button>
           </div>
         </div>
-        <div class="muted">기간을 입력하면 해당 구간의 합계가 자동 계산됩니다.</div>
+        <div class="muted">기간 저장 후 기간별 통계가 새 기준으로 다시 계산됩니다.</div>
       </section>
 
       <section class="card">
