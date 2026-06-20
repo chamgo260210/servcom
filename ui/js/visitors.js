@@ -44,25 +44,27 @@ function hasCalculationDetails(entry) {
 }
 
 function calculationStatus(entry) {
-  return hasCalculationDetails(entry) ? '원본 있음' : '계산 원본 없음';
+  if (!entry) return '-';
+  if (entry.calculation_source === 'COUNTER' || hasCalculationDetails(entry)) return '계수기 계산';
+  return '직접 입력';
 }
 
 function renderCalculationDetailHtml(entry) {
   if (!entry) return '<div class="muted">선택된 기록이 없습니다.</div>';
   const updater = entry.updated_by_name || entry.created_by_name || '-';
-  const noSource = hasCalculationDetails(entry) ? '' : '<div class="muted">계산 원본 없음</div>';
   return `
-    ${noSource}
     <div class="helper-item"><div class="muted">날짜</div><strong>${formatDate(entry.visit_date)}</strong></div>
+    <div class="helper-item"><div class="muted">금일 출입자</div><strong>${formatNumber(entry.daily_visitors)}</strong></div>
+    <div class="helper-item"><div class="muted">입력 방식</div><strong>${calculationStatus(entry)}</strong></div>
     <div class="helper-item"><div class="muted">전일 합</div><strong>${formatNumber(entry.previous_total)}</strong></div>
     <div class="helper-item"><div class="muted">Count 1</div><strong>${formatNumber(entry.count1)}</strong></div>
     <div class="helper-item"><div class="muted">Count 2</div><strong>${formatNumber(entry.count2)}</strong></div>
     <div class="helper-item"><div class="muted">금일 합</div><strong>${formatNumber(entry.current_total)}</strong></div>
-    <div class="helper-item"><div class="muted">금일 출입자</div><strong>${formatNumber(entry.daily_visitors)}</strong></div>
-    <div class="helper-item"><div class="muted">입력자/수정자</div><strong>${updater}</strong></div>
+    <div class="helper-item"><div class="muted">수정자</div><strong>${updater}</strong></div>
     <div class="helper-item"><div class="muted">수정 시각</div><strong>${formatDateTime(entry.updated_at)}</strong></div>
   `;
 }
+
 
 function parseNumberInput(value) {
   if (value === null || value === undefined) return null;
@@ -257,6 +259,7 @@ function renderBulkMonthTable() {
     }
     const entry = entriesByDate.get(dateStr);
     const value = entry?.daily_visitors ?? '';
+    const updater = entry?.updated_by_name || entry?.created_by_name || '-';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${formatDate(dateStr)}</td>
@@ -266,6 +269,8 @@ function renderBulkMonthTable() {
       <td>${formatNumber(entry?.count1)}</td>
       <td>${formatNumber(entry?.count2)}</td>
       <td>${formatNumber(entry?.current_total)}</td>
+      <td>${entry ? updater : '-'}</td>
+      <td>${entry ? formatDateTime(entry.updated_at) : '-'}</td>
     `;
     if (entry) tr.addEventListener('click', () => selectEntry(entry));
     tbody.appendChild(tr);
@@ -382,16 +387,14 @@ async function renderEntries() {
     const tr = document.createElement('tr');
     if (entry.id === selectedEntryId) tr.classList.add('selected');
     const updater = entry.updated_by_name || entry.created_by_name || '-';
-    const totalCount = entry.total_count === 0 && entry.daily_override !== null && entry.previous_total !== null
-      ? entry.previous_total + entry.daily_override
-      : entry.total_count;
-    const dailyVisitors = entry.daily_visitors === 0 && entry.daily_override !== null
-      ? entry.daily_override
-      : entry.daily_visitors;
     tr.innerHTML = `
       <td>${formatDate(entry.visit_date)}</td>
       <td>${formatNumber(entry.daily_visitors)}</td>
       <td>${calculationStatus(entry)}</td>
+      <td>${formatNumber(entry.previous_total)}</td>
+      <td>${formatNumber(entry.count1)}</td>
+      <td>${formatNumber(entry.count2)}</td>
+      <td>${formatNumber(entry.current_total)}</td>
       <td>${updater}</td>
       <td>${formatDateTime(entry.updated_at)}</td>
     `;
@@ -738,7 +741,7 @@ function updateBulkEntryPreview(entry) {
   const detailEl = getElement('bulk-preview-details');
   if (dailyEl) dailyEl.textContent = formatNumber(dailyInput ?? entry?.daily_visitors ?? null);
   if (updaterEl) updaterEl.textContent = entry?.updated_by_name || entry?.created_by_name || '-';
-  if (detailEl) detailEl.innerHTML = entry ? renderCalculationDetailHtml(entry) : '<div class="muted">계산 원본 없음</div>';
+  if (detailEl) detailEl.innerHTML = entry ? renderCalculationDetailHtml(entry) : '<div class="muted">행을 선택하면 저장 근거가 표시됩니다.</div>';
 }
 
 async function loadPreviousTotal() {
@@ -750,7 +753,7 @@ async function loadPreviousTotal() {
     const prevTotal = getElement('prev-total');
     if (prevTotal) {
       if (data.previous_total === null || data.previous_total === undefined) {
-        showUserError('전일 합산 정보가 없습니다. 직접 입력하세요.', 'entry-message');
+        showUserError('전일 합 정보가 없습니다. 직접 입력하세요.', 'entry-message');
         prevTotal.focus();
       } else {
         prevTotal.value = String(data.previous_total);
@@ -938,7 +941,7 @@ function bindEvents() {
       return;
     }
     if (prevTotal === null) {
-      showUserError('전일 합산을 불러오거나 직접 입력하세요.', 'entry-message');
+      showUserError('전일 합을 불러오거나 직접 입력하세요.', 'entry-message');
       return;
     }
     if (prevTotal < 0 || prevTotal > 100000000) {
